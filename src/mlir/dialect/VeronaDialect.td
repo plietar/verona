@@ -41,4 +41,7 @@ def Verona_TypeAttr :
   let convertFromStorage = "$_self.getValue().cast<Type>()";
 }
 
+def VerifyTypesTrait : NativeOpTrait<"VerifyTypesTrait">;
+def PolymorphicOp : NativeOpTrait<"PolymorphicOpTrait">;
+
 #endif // VERONA_DIALECT

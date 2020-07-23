@@ -161,6 +161,26 @@ namespace mlir::verona::detail
         ViewpointTypeStorage(std::get<0>(key), std::get<1>(key));
     }
   };
+
+  struct VariableTypeStorage : public ::mlir::TypeStorage
+  {
+    uint64_t index;
+
+    using KeyTy = uint64_t;
+    VariableTypeStorage(uint64_t index) : index(index) {}
+
+    bool operator==(const KeyTy& key) const
+    {
+      return key == index;
+    }
+
+    static VariableTypeStorage*
+    construct(TypeStorageAllocator& allocator, const KeyTy& key)
+    {
+      return new (allocator.allocate<VariableTypeStorage>())
+        VariableTypeStorage(key);
+    }
+  };
 } // namespace mlir::verona::detail
 
 namespace mlir::verona
@@ -235,6 +255,16 @@ namespace mlir::verona
   Type ViewpointType::getRightType() const
   {
     return getImpl()->right;
+  }
+
+  VariableType VariableType::get(MLIRContext* ctx, uint64_t index)
+  {
+    return Base::get(ctx, VeronaTypes::Variable, index);
+  }
+
+  uint64_t VariableType::getIndex() const
+  {
+    return getImpl()->index;
   }
 
   /// Parse a list of types, surrounded by angle brackets and separated by
@@ -320,6 +350,17 @@ namespace mlir::verona
     return ViewpointType::get(ctx, left, right);
   }
 
+  static Type parseVariableType(MLIRContext* ctx, DialectAsmParser& parser)
+  {
+    uint64_t index;
+
+    if (
+      parser.parseLess() || parser.parseInteger(index) || parser.parseGreater())
+      return Type();
+
+    return VariableType::get(ctx, index);
+  }
+
   Type parseVeronaType(DialectAsmParser& parser)
   {
     MLIRContext* ctx = parser.getBuilder().getContext();
@@ -346,6 +387,8 @@ namespace mlir::verona
       return CapabilityType::get(ctx, Capability::Mutable);
     else if (keyword == "imm")
       return CapabilityType::get(ctx, Capability::Immutable);
+    else if (keyword == "variable")
+      return parseVariableType(ctx, parser);
     else if (keyword.startswith("U") || keyword.startswith("S"))
       return parseIntegerType(ctx, parser, keyword);
 
@@ -440,6 +483,13 @@ namespace mlir::verona
         auto viewpointType = type.cast<ViewpointType>();
         os << "viewpoint<" << viewpointType.getLeftType() << ", "
            << viewpointType.getRightType() << ">";
+        break;
+      }
+
+      case VeronaTypes::Variable:
+      {
+        auto varType = type.cast<VariableType>();
+        os << "variable<" << varType.getIndex() << ">";
         break;
       }
     }
@@ -714,6 +764,57 @@ namespace mlir::verona
 
       default:
         return {nullptr, nullptr};
+    }
+  }
+
+  uint64_t typeVariablesInScope(Operation* op)
+  {
+    uint64_t count = 0;
+    for (; op != nullptr; op = op->getParentOp())
+    {
+      if (op->hasTrait<OpTrait::PolymorphicOpTrait>())
+        count += PolymorphicOp::getNumTypeParameters(op);
+    }
+    return count;
+  }
+
+  uint64_t freeTypeVariables(Type type)
+  {
+    switch (type.getKind())
+    {
+      case VeronaTypes::Integer:
+        return 0;
+
+      case VeronaTypes::Meet:
+      {
+        auto meetType = type.cast<MeetType>();
+        uint64_t result = 0;
+        for (auto it : meetType.getElements())
+          result = std::max(freeTypeVariables(it), result);
+        return result;
+      }
+
+      case VeronaTypes::Join:
+      {
+        auto joinType = type.cast<JoinType>();
+        uint64_t result = 0;
+        for (auto it : joinType.getElements())
+          result = std::max(freeTypeVariables(it), result);
+        return result;
+      }
+
+      case VeronaTypes::Variable:
+      {
+        auto varType = type.cast<VariableType>();
+        return varType.getIndex() + 1;
+      }
+
+      case VeronaTypes::Capability:
+      case VeronaTypes::Class:
+        return 0;
+
+      default:
+        abort();
     }
   }
 }

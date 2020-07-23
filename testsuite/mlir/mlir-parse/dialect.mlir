@@ -23,27 +23,15 @@
 // ```
 
 module {
-  verona.class @C {
+  verona.class @C attributes { type_parameters = 0 } {
   }
 
-  verona.class @D {
-    verona.field "f" : !verona.U64
-    verona.field "g" : !verona.S32
+  verona.class @D attributes { type_parameters = 1 } {
+    verona.field "f" : !verona.variable<0>
   }
 
   func @bar() {
     %a = verona.new_region @C [ ] : !verona.U64
-    %b = verona.view %a : !verona.U64 -> !verona.U64
-
-    %c = verona.new_object @D [ "f", "g" ] (%b, %b : !verona.U64, !verona.U64) in (%a : !verona.U64) : !verona.S64
-
-    %d = verona.field_read %c["f"] : !verona.S64 -> !verona.U64
-    verona.field_write %c["f"], %d : !verona.S64 -> !verona.U64 -> !verona.U64
-
-    %e = verona.field_read %c["g"] : !verona.S64 -> !verona.S32
-
-    verona.tidy %a : !verona.U64
-    verona.drop %a : !verona.U64
 
     verona.return
   }

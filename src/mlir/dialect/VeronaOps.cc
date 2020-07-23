@@ -23,6 +23,9 @@ static ParseResult parseClassOp(OpAsmParser& parser, OperationState& state)
         nameAttr, SymbolTable::getSymbolAttrName(), state.attributes))
     return failure();
 
+  if (verona::PolymorphicOp::parseTypeParameters(parser, state))
+    return failure();
+
   if (parser.parseOptionalAttrDictWithKeyword(state.attributes))
     return failure();
 
@@ -38,8 +41,12 @@ static void print(OpAsmPrinter& printer, verona::ClassOp op)
 {
   printer << verona::ClassOp::getOperationName() << ' ';
   printer.printSymbolName(op.sym_name());
+  verona::PolymorphicOp::printTypeParameters(printer, op);
   printer.printOptionalAttrDict(
-    op.getAttrs(), /*elidedAttrs=*/{SymbolTable::getSymbolAttrName()});
+    op.getAttrs(),
+    /*elidedAttrs=*/
+    {SymbolTable::getSymbolAttrName(),
+     verona::PolymorphicOp::getTypeParametersAttrName()});
   printer.printRegion(
     op.body(), /*printEntryBlockArgs=*/false, /*printBlockTerminators=*/false);
 }

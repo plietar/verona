@@ -28,7 +28,8 @@ VeronaDialect::VeronaDialect(mlir::MLIRContext* context)
     IntegerType,
     CapabilityType,
     ClassType,
-    ViewpointType>();
+    ViewpointType,
+    VariableType>();
 
   allowUnknownOperations();
   allowUnknownTypes();

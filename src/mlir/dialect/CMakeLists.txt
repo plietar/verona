@@ -8,8 +8,10 @@ add_mlir_dialect_library(MLIRVerona
     VeronaDialect.cc
     VeronaOps.cc
     VeronaTypes.cc
+    VeronaTraits.cc
     Typechecker.cc
     TypecheckInterface.cc
+    PolymorphicOp.cc
 
     DEPENDS
     MLIRVeronaOpsIncGen

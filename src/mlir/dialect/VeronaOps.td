@@ -106,7 +106,7 @@ def Verona_DropOp : Verona_Op<"drop"> {
     let verifier = [{ return success(); }];
 }
 
-def Verona_AllocateRegionOp : Verona_Op<"new_region"> {
+def Verona_AllocateRegionOp : Verona_Op<"new_region", [VerifyTypesTrait]> {
     let summary = "Allocate an object in a new region";
     let description = [{
       Allocate a new object of the given class in a new region.
@@ -225,7 +225,9 @@ def Verona_ReturnOp : Verona_Op<"return", [
 def Verona_ClassOp : Verona_Op<"class", [
   Symbol, IsolatedFromAbove, SymbolTable,
   SingleBlockImplicitTerminator<"ClassEndOp">,
-  NoRegionArguments
+  NoRegionArguments,
+  PolymorphicOp
+  // DeclareOpInterfaceMethods<PolymorphicOpInterface>
 ]> {
     let summary = "Verona class definition";
     let description = [{
@@ -246,7 +248,9 @@ def Verona_ClassOp : Verona_Op<"class", [
       ```
     }];
 
-    let arguments = (ins StrAttr : $sym_name);
+    let arguments = (ins
+      StrAttr : $sym_name
+    );
     let results = (outs);
     let regions = (region SizedRegion<1> : $body);
 }
@@ -272,7 +276,7 @@ def Verona_ClassEndOp : Verona_Op<"_class_end", [Terminator, InClassScope]> {
     let printer = ?;
 }
 
-def Verona_FieldOp : Verona_Op<"field", [InClassScope]> {
+def Verona_FieldOp : Verona_Op<"field", [InClassScope, VerifyTypesTrait]> {
     let summary = "Field definition";
     let description = [{
       This operation is used inside class bodies to define new fields.

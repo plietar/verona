@@ -17,6 +17,9 @@ namespace mlir::verona
   /// dialect.
   bool areVeronaTypes(llvm::ArrayRef<Type> types);
 
+  uint64_t typeVariablesInScope(Operation* op);
+  uint64_t freeTypeVariables(Type type);
+
   /// Normalize a type by distributing unions and intersections, putting the
   /// type in disjunctive normal form. This is a necessary step in order for
   /// subtyping to recognise certain relations.
@@ -61,6 +64,7 @@ namespace mlir::verona
     struct CapabilityTypeStorage;
     struct ClassTypeStorage;
     struct ViewpointTypeStorage;
+    struct VariableTypeStorage;
   }
 
   // In the long term we should claim a range in LLVM's DialectSymbolRegistry,
@@ -80,6 +84,7 @@ namespace mlir::verona
       Capability,
       Class,
       Viewpoint,
+      Variable,
     };
   }
 
@@ -172,6 +177,21 @@ namespace mlir::verona
     static bool kindof(unsigned kind)
     {
       return kind == VeronaTypes::Viewpoint;
+    }
+  };
+
+  struct VariableType
+  : public Type::TypeBase<VariableType, Type, detail::VariableTypeStorage>
+  {
+    using Base::Base;
+
+    static VariableType get(MLIRContext* context, uint64_t index);
+
+    uint64_t getIndex() const;
+
+    static bool kindof(unsigned kind)
+    {
+      return kind == VeronaTypes::Variable;
     }
   };
 
