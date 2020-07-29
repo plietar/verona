@@ -5,6 +5,7 @@
 
 #include "Typechecker.h"
 #include "VeronaDialect.h"
+#include "VeronaTypes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/StandardTypes.h"
@@ -132,6 +133,34 @@ namespace mlir::verona
   LogicalResult CopyOp::typecheck()
   {
     return checkSubtype(getOperation(), input().getType(), output().getType());
+  }
+
+  LogicalResult FieldReadOp::typecheck()
+  {
+    // TODO: Apply viewpoint adaptation
+    auto [fieldType, _] =
+      lookupFieldType(getOperation(), origin().getType(), field());
+
+    if (!fieldType)
+      return emitOpError("Cannot find field '")
+        << field() << "' in type " << origin().getType();
+
+    return checkSubtype(getOperation(), fieldType, output().getType());
+  }
+
+  LogicalResult FieldWriteOp::typecheck()
+  {
+    auto [readType, writeType] =
+      lookupFieldType(getOperation(), origin().getType(), field());
+
+    assert((readType == nullptr) == (writeType == nullptr));
+    if (!readType)
+      return emitOpError("Cannot find field '")
+        << field() << "' in type " << origin().getType();
+
+    if (failed(checkSubtype(getOperation(), value().getType(), writeType)))
+      return failure();
+    return checkSubtype(getOperation(), readType, output().getType());
   }
 
   LogicalResult ReturnOp::typecheck()

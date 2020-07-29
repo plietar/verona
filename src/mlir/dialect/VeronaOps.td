@@ -40,7 +40,7 @@ def Verona_ViewOp : Verona_Op<"view"> {
     let verifier = [{ return success(); }];
 }
 
-def Verona_FieldReadOp : Verona_Op<"field_read"> {
+def Verona_FieldReadOp : Verona_Op<"field_read", [ Typecheckable ]> {
     let summary = "Read a field from a reference";
     let description = [{
       Read the value of a field from a reference. The result value is always an
@@ -62,7 +62,7 @@ def Verona_FieldReadOp : Verona_Op<"field_read"> {
     let verifier = [{ return success(); }];
 }
 
-def Verona_FieldWriteOp : Verona_Op<"field_write"> {
+def Verona_FieldWriteOp : Verona_Op<"field_write", [ Typecheckable ]> {
     let summary = "Write to a field through a reference";
     let description = [{
       Write a new value to a field. The field's old value is returned.

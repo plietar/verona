@@ -22,7 +22,7 @@ VeronaDialect::VeronaDialect(mlir::MLIRContext* context)
 #include "dialect/VeronaOps.cpp.inc"
     >();
 
-  addTypes<MeetType, JoinType, IntegerType, CapabilityType>();
+  addTypes<MeetType, JoinType, IntegerType, CapabilityType, ClassType>();
 
   allowUnknownOperations();
   allowUnknownTypes();

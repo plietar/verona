@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "VeronaOps.h"
 #include "mlir/IR/Dialect.h"
 
 namespace mlir::verona
@@ -28,12 +29,37 @@ namespace mlir::verona
   /// try to cache the results.
   Type normalizeType(Type type);
 
+  FieldOp lookupClassField(ClassOp classOp, StringRef name);
+
+  std::pair<Type, Type>
+  lookupFieldType(Operation* op, Type origin, StringRef name);
+
+  /// Look up the type of a field in many `origins` types.
+  ///
+  /// The read sides are collected into `readElements` and the write sides into
+  /// `writeElements`.
+  ///
+  /// Returns true if the field is found in every element of `origins`. This
+  /// includes returning true is `origins` is empty. If false is returned, at
+  /// least one origin does not expose this field, and
+  /// `readElements`/`writeElements` will be smaller in length than `origins`.
+  ///
+  /// `readElements` and `writeElements` always have the same length.
+  ///
+  bool lookupFieldTypes(
+    Operation* op,
+    ArrayRef<Type> origins,
+    StringRef name,
+    SmallVectorImpl<Type>& readElements,
+    SmallVectorImpl<Type>& writeElements);
+
   namespace detail
   {
     struct MeetTypeStorage;
     struct JoinTypeStorage;
     struct IntegerTypeStorage;
     struct CapabilityTypeStorage;
+    struct ClassTypeStorage;
   }
 
   // In the long term we should claim a range in LLVM's DialectSymbolRegistry,
@@ -51,6 +77,7 @@ namespace mlir::verona
       Join,
       Integer,
       Capability,
+      Class,
     };
   }
 
@@ -115,6 +142,19 @@ namespace mlir::verona
     static bool kindof(unsigned kind)
     {
       return kind == VeronaTypes::Capability;
+    }
+  };
+
+  struct ClassType
+  : public Type::TypeBase<ClassType, Type, detail::ClassTypeStorage>
+  {
+    using Base::Base;
+    static ClassType get(MLIRContext* ctx, StringRef s);
+    StringRef getClassName() const;
+
+    static bool kindof(unsigned kind)
+    {
+      return kind == VeronaTypes::Class;
     }
   };
 }
