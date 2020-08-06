@@ -503,6 +503,19 @@ namespace mlir::verona
     }
   }
 
+  /// Distribute all join and meets found in `type`, by applying `f` to every
+  /// "atom" in the type. `type` is assumed to be in normal form already.
+  ///
+  /// For example, given `join<meet<A, B>, C>`, this function returns
+  /// `join<meet<f(A), f(B)>, f(C)>`.
+  static Type
+  distributeAll(MLIRContext* ctx, Type type, llvm::function_ref<Type(Type)> f)
+  {
+    return distributeType<JoinType>(ctx, type, [&](Type inner) {
+      return distributeType<MeetType>(ctx, inner, f);
+    });
+  }
+
   /// Normalize a meet type.
   /// This function returns the normal form of `meet<normalized..., rest...>`,
   /// distributing any nested joins.
@@ -554,6 +567,18 @@ namespace mlir::verona
     return JoinType::get(ctx, result);
   }
 
+  Type normalizeViewpoint(MLIRContext* ctx, Type left, Type right)
+  {
+    Type normalizedLeft = normalizeType(left);
+    Type normalizedRight = normalizeType(right);
+
+    return distributeAll(ctx, normalizedLeft, [&](Type distributedLeft) {
+      return distributeAll(ctx, normalizedRight, [&](Type distributedRight) {
+        return ViewpointType::get(ctx, distributedLeft, distributedRight);
+      });
+    });
+  }
+
   Type normalizeType(Type type)
   {
     MLIRContext* ctx = type.getContext();
@@ -563,6 +588,7 @@ namespace mlir::verona
       // These don't contain any nested types and need no expansion.
       case VeronaTypes::Integer:
       case VeronaTypes::Capability:
+      case VeronaTypes::Class:
         return type;
 
       case VeronaTypes::Join:
@@ -570,6 +596,13 @@ namespace mlir::verona
 
       case VeronaTypes::Meet:
         return normalizeMeet(ctx, type.cast<MeetType>().getElements());
+
+      case VeronaTypes::Viewpoint:
+      {
+        auto viewpoint = type.cast<ViewpointType>();
+        return normalizeViewpoint(
+          ctx, viewpoint.getLeftType(), viewpoint.getRightType());
+      }
 
       default:
         abort();
@@ -674,6 +707,10 @@ namespace mlir::verona
         else
           return {nullptr, nullptr};
       }
+
+      case VeronaTypes::Viewpoint:
+        return lookupFieldType(
+          op, origin.cast<ViewpointType>().getRightType(), name);
 
       default:
         return {nullptr, nullptr};
