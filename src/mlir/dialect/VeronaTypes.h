@@ -60,6 +60,7 @@ namespace mlir::verona
     struct IntegerTypeStorage;
     struct CapabilityTypeStorage;
     struct ClassTypeStorage;
+    struct ViewpointTypeStorage;
   }
 
   // In the long term we should claim a range in LLVM's DialectSymbolRegistry,
@@ -78,6 +79,7 @@ namespace mlir::verona
       Integer,
       Capability,
       Class,
+      Viewpoint,
     };
   }
 
@@ -155,6 +157,21 @@ namespace mlir::verona
     static bool kindof(unsigned kind)
     {
       return kind == VeronaTypes::Class;
+    }
+  };
+
+  struct ViewpointType
+  : public Type::TypeBase<ViewpointType, Type, detail::ViewpointTypeStorage>
+  {
+    using Base::Base;
+    static ViewpointType get(MLIRContext* ctx, Type left, Type right);
+
+    Type getLeftType() const;
+    Type getRightType() const;
+
+    static bool kindof(unsigned kind)
+    {
+      return kind == VeronaTypes::Viewpoint;
     }
   };
 }

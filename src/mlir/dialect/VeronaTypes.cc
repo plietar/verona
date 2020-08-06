@@ -134,6 +134,33 @@ namespace mlir::verona::detail
       return new (allocator.allocate<ClassTypeStorage>()) ClassTypeStorage(key);
     }
   };
+
+  struct ViewpointTypeStorage : public ::mlir::TypeStorage
+  {
+    Type left;
+    Type right;
+
+    using KeyTy = std::tuple<Type, Type>;
+
+    ViewpointTypeStorage(Type left, Type right) : left(left), right(right) {}
+
+    static llvm::hash_code hashKey(const KeyTy& key)
+    {
+      return llvm::hash_value(key);
+    }
+
+    bool operator==(const KeyTy& key) const
+    {
+      return key == std::tie(left, right);
+    }
+
+    static ViewpointTypeStorage*
+    construct(TypeStorageAllocator& allocator, const KeyTy& key)
+    {
+      return new (allocator.allocate<ViewpointTypeStorage>())
+        ViewpointTypeStorage(std::get<0>(key), std::get<1>(key));
+    }
+  };
 } // namespace mlir::verona::detail
 
 namespace mlir::verona
@@ -193,6 +220,21 @@ namespace mlir::verona
   StringRef ClassType::getClassName() const
   {
     return getImpl()->class_name;
+  }
+
+  ViewpointType ViewpointType::get(MLIRContext* ctx, Type left, Type right)
+  {
+    return Base::get(ctx, VeronaTypes::Viewpoint, std::make_tuple(left, right));
+  }
+
+  Type ViewpointType::getLeftType() const
+  {
+    return getImpl()->left;
+  }
+
+  Type ViewpointType::getRightType() const
+  {
+    return getImpl()->right;
   }
 
   /// Parse a list of types, surrounded by angle brackets and separated by
@@ -265,6 +307,19 @@ namespace mlir::verona
     return ClassType::get(ctx, attr.getValue());
   }
 
+  static Type parseViewpointType(MLIRContext* ctx, DialectAsmParser& parser)
+  {
+    Type left;
+    Type right;
+    if (
+      parser.parseLess() || !(left = parseVeronaType(parser)) ||
+      parser.parseComma() || !(right = parseVeronaType(parser)) ||
+      parser.parseGreater())
+      return Type();
+
+    return ViewpointType::get(ctx, left, right);
+  }
+
   Type parseVeronaType(DialectAsmParser& parser)
   {
     MLIRContext* ctx = parser.getBuilder().getContext();
@@ -279,6 +334,8 @@ namespace mlir::verona
       return parseMeetType(ctx, parser);
     else if (keyword == "join")
       return parseJoinType(ctx, parser);
+    else if (keyword == "viewpoint")
+      return parseViewpointType(ctx, parser);
     else if (keyword == "top")
       return MeetType::get(ctx, {});
     else if (keyword == "bottom")
@@ -375,6 +432,14 @@ namespace mlir::verona
       {
         auto classType = type.cast<ClassType>();
         os << "class<@" << classType.getClassName() << ">";
+        break;
+      }
+
+      case VeronaTypes::Viewpoint:
+      {
+        auto viewpointType = type.cast<ViewpointType>();
+        os << "viewpoint<" << viewpointType.getLeftType() << ", "
+           << viewpointType.getRightType() << ">";
         break;
       }
     }

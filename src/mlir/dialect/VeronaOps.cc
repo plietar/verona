@@ -137,15 +137,18 @@ namespace mlir::verona
 
   LogicalResult FieldReadOp::typecheck()
   {
-    // TODO: Apply viewpoint adaptation
+    auto originType = origin().getType();
+
     auto [fieldType, _] =
-      lookupFieldType(getOperation(), origin().getType(), field());
+      lookupFieldType(getOperation(), originType, field());
+
+    auto adaptedType = ViewpointType::get(getContext(), originType, fieldType);
 
     if (!fieldType)
       return emitOpError("Cannot find field '")
         << field() << "' in type " << origin().getType();
 
-    return checkSubtype(getOperation(), fieldType, output().getType());
+    return checkSubtype(getOperation(), adaptedType, output().getType());
   }
 
   LogicalResult FieldWriteOp::typecheck()
