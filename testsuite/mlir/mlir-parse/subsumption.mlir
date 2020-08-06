@@ -37,4 +37,9 @@ module {
     // Return supports multiple operands, which are subtyped individually
     verona.return %a, %a : !verona.meet<U64, imm>, !verona.meet<U64, imm>
   }
+
+  func @test_distributivity(%a: !verona.meet<U64, join<iso, mut>>) -> !verona.join<meet<U64, iso>, meet<U64, mut>> {
+    // We allow distributivity of join over meets.
+    verona.return %a: !verona.meet<U64, join<iso, mut>>
+  }
 }

@@ -131,7 +131,7 @@ namespace mlir::verona
 {
   LogicalResult CopyOp::typecheck()
   {
-    return checkSubtype(getLoc(), input().getType(), output().getType());
+    return checkSubtype(getOperation(), input().getType(), output().getType());
   }
 
   LogicalResult ReturnOp::typecheck()
@@ -143,7 +143,7 @@ namespace mlir::verona
     // function signature. We only need to check types.
     for (auto [operand, type] : llvm::zip(operands(), results))
     {
-      if (failed(checkSubtype(getLoc(), operand.getType(), type)))
+      if (failed(checkSubtype(getOperation(), operand.getType(), type)))
         return failure();
     }
 
