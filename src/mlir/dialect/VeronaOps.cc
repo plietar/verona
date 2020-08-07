@@ -7,48 +7,116 @@
 #include "VeronaDialect.h"
 #include "VeronaTypes.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/StandardTypes.h"
 
 #include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
+using namespace mlir::verona;
 
 static ParseResult parseClassOp(OpAsmParser& parser, OperationState& state)
 {
+  StringAttr nameAttr;
+  if (parser.parseSymbolName(
+        nameAttr, SymbolTable::getSymbolAttrName(), state.attributes))
+    return failure();
+
+  if (PolymorphicOp::parseTypeParameters(parser, state))
+    return failure();
+
+  if (parser.parseOptionalAttrDictWithKeyword(state.attributes))
+    return failure();
+
   Region* body = state.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{}))
+    return failure();
+
+  ClassOp::ensureTerminator(*body, parser.getBuilder(), state.location);
+
+  return success();
+}
+
+static ParseResult parseVeronaFuncOp(OpAsmParser& parser, OperationState& state)
+{
+  SmallVector<OpAsmParser::OperandType, 4> entryArgs;
+  SmallVector<NamedAttrList, 4> argAttrs;
+  SmallVector<NamedAttrList, 4> resultAttrs;
+  SmallVector<Type, 4> argTypes;
+  SmallVector<Type, 4> resultTypes;
 
   StringAttr nameAttr;
   if (parser.parseSymbolName(
         nameAttr, SymbolTable::getSymbolAttrName(), state.attributes))
     return failure();
 
-  if (verona::PolymorphicOp::parseTypeParameters(parser, state))
+  if (PolymorphicOp::parseTypeParameters(parser, state))
     return failure();
+
+  // Parse the function signature.
+  bool isVariadic = false;
+  if (impl::parseFunctionSignature(
+        parser,
+        /*allowVariadic=*/false,
+        entryArgs,
+        argTypes,
+        argAttrs,
+        isVariadic,
+        resultTypes,
+        resultAttrs))
+    return failure();
+
+  // Add the signature to
+  Builder& builder = parser.getBuilder();
+  auto type = builder.getFunctionType(argTypes, resultTypes);
+  state.addAttribute(VeronaFuncOp::getTypeAttrName(), TypeAttr::get(type));
 
   if (parser.parseOptionalAttrDictWithKeyword(state.attributes))
     return failure();
 
-  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{}))
+  Region* body = state.addRegion();
+  if (parser.parseRegion(*body, entryArgs, argTypes))
     return failure();
-
-  verona::ClassOp::ensureTerminator(*body, parser.getBuilder(), state.location);
 
   return success();
 }
 
-static void print(OpAsmPrinter& printer, verona::ClassOp op)
+static void print(OpAsmPrinter& printer, ClassOp op)
 {
-  printer << verona::ClassOp::getOperationName() << ' ';
+  printer << ClassOp::getOperationName() << ' ';
   printer.printSymbolName(op.sym_name());
-  verona::PolymorphicOp::printTypeParameters(printer, op);
+  PolymorphicOp::printTypeParameters(printer, op);
   printer.printOptionalAttrDict(
     op.getAttrs(),
     /*elidedAttrs=*/
     {SymbolTable::getSymbolAttrName(),
-     verona::PolymorphicOp::getTypeParametersAttrName()});
+     PolymorphicOp::getTypeParametersAttrName()});
   printer.printRegion(
     op.body(), /*printEntryBlockArgs=*/false, /*printBlockTerminators=*/false);
+}
+
+static void print(OpAsmPrinter& printer, VeronaFuncOp op)
+{
+  printer << VeronaFuncOp::getOperationName() << ' ';
+  printer.printSymbolName(op.getName());
+  PolymorphicOp::printTypeParameters(printer, op);
+
+  FunctionType type = op.getType();
+  impl::printFunctionSignature(
+    printer,
+    op.getOperation(),
+    type.getInputs(),
+    /*isVariadic=*/false,
+    type.getResults());
+
+  impl::printFunctionAttributes(
+    printer,
+    op.getOperation(),
+    type.getNumInputs(),
+    type.getNumResults(),
+    {PolymorphicOp::getTypeParametersAttrName()});
+  printer.printRegion(op.getBody(), /*printEntryBlockArgs=*/false);
 }
 
 /**
@@ -63,8 +131,7 @@ template<typename Op>
 static LogicalResult verifyAllocationOp(Op op)
 {
   auto className = op.class_name();
-  auto classOp =
-    SymbolTable::lookupNearestSymbolFrom<verona::ClassOp>(op, className);
+  auto classOp = SymbolTable::lookupNearestSymbolFrom<ClassOp>(op, className);
   if (!classOp)
   {
     return op.emitOpError("class '")
@@ -82,19 +149,19 @@ static LogicalResult verifyAllocationOp(Op op)
   return success();
 }
 
-static LogicalResult verify(verona::AllocateRegionOp op)
+static LogicalResult verify(AllocateRegionOp op)
 {
   return verifyAllocationOp(op);
 }
 
-static LogicalResult verify(verona::AllocateObjectOp op)
+static LogicalResult verify(AllocateObjectOp op)
 {
   return verifyAllocationOp(op);
 }
 
 static LogicalResult verify(verona::ReturnOp op)
 {
-  auto fn = cast<FuncOp>(op.getParentOp());
+  auto fn = cast<VeronaFuncOp>(op.getParentOp());
 
   // Only check that the number of operands matches the function signature.
   // Actual typechecking of the operands is done in the `typecheck` pass.
@@ -116,7 +183,7 @@ static LogicalResult verify(verona::ClassOp classOp)
   llvm::StringSet<> fields;
   for (Operation& op : *body)
   {
-    if (verona::FieldOp field_op = dyn_cast<verona::FieldOp>(op))
+    if (FieldOp field_op = dyn_cast<FieldOp>(op))
     {
       auto it = fields.insert(field_op.name());
 
@@ -126,7 +193,7 @@ static LogicalResult verify(verona::ClassOp classOp)
           "redefinition of field named '", field_op.name(), "'");
       }
     }
-    else if (!isa<verona::ClassEndOp>(op))
+    else if (!isa<ClassEndOp>(op))
     {
       return op.emitOpError("cannot be contained in class");
     }
@@ -146,8 +213,7 @@ namespace mlir::verona
   {
     auto originType = origin().getType();
 
-    auto [fieldType, _] =
-      lookupFieldType(getOperation(), originType, field());
+    auto [fieldType, _] = lookupFieldType(getOperation(), originType, field());
 
     auto adaptedType = ViewpointType::get(getContext(), originType, fieldType);
 
@@ -175,7 +241,7 @@ namespace mlir::verona
 
   LogicalResult ReturnOp::typecheck()
   {
-    auto fn = cast<FuncOp>(getParentOp());
+    auto fn = cast<VeronaFuncOp>(getParentOp());
     const auto& results = fn.getType().getResults();
 
     // The verifier already checks that the number of operands matches the
@@ -186,6 +252,16 @@ namespace mlir::verona
         return failure();
     }
 
+    return success();
+  }
+
+  LogicalResult VeronaFuncOp::verifyType()
+  {
+    return success();
+  }
+
+  LogicalResult VeronaFuncOp::verifyBody()
+  {
     return success();
   }
 

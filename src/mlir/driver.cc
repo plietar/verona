@@ -12,12 +12,12 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/IR/Module.h"
-#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 namespace mlir::verona
 {
-  Driver::Driver(unsigned optLevel) : passManager(&context)
+  Driver::Driver(unsigned optLevel)
+  : passManager(&context), sourceMgrHandler(sourceMgr, &context)
   {
     // Opaque operations and types can only exist if we allow
     // unregistered dialects to co-exist. Full conversions later will
@@ -70,7 +70,6 @@ namespace mlir::verona
 
     // Setup source manager and parse the input.
     // `parseSourceFile` already includes verification of the IR.
-    llvm::SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(*srcOrErr), llvm::SMLoc());
     module = mlir::parseSourceFile(sourceMgr, &context);
     if (!module)

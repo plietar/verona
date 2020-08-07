@@ -7,6 +7,7 @@
 include "VeronaDialect.td"
 include "TypecheckInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
+include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
@@ -187,7 +188,7 @@ def Verona_AllocateObjectOp : Verona_Op<"new_object"> {
 }
 
 def Verona_ReturnOp : Verona_Op<"return", [
-  NoSideEffect, HasParent<"FuncOp">, ReturnLike,
+  NoSideEffect, HasParent<"VeronaFuncOp">, ReturnLike,
   Terminator, Typecheckable
 ]> {
   let summary = "Return from the current function";
@@ -227,7 +228,6 @@ def Verona_ClassOp : Verona_Op<"class", [
   SingleBlockImplicitTerminator<"ClassEndOp">,
   NoRegionArguments,
   PolymorphicOp
-  // DeclareOpInterfaceMethods<PolymorphicOpInterface>
 ]> {
     let summary = "Verona class definition";
     let description = [{
@@ -270,6 +270,7 @@ def Verona_ClassEndOp : Verona_Op<"_class_end", [Terminator, InClassScope]> {
 
     let arguments = (ins);
     let results = (outs);
+
     let verifier = [{ return success(); }];
 
     let parser = ?;
@@ -285,6 +286,33 @@ def Verona_FieldOp : Verona_Op<"field", [InClassScope, VerifyTypesTrait]> {
     let arguments = (ins StrAttr : $name, Verona_TypeAttr : $type);
     let assemblyFormat = [{ $name `:` $type attr-dict }];
     let verifier = [{ return success(); }];
+}
+
+def Verona_VeronaFuncOp : Verona_Op<"func", [
+  PolymorphicOp, IsolatedFromAbove,
+  FunctionLike, IsolatedFromAbove, Symbol
+]> {
+  let arguments = (ins
+      TypeAttr:$type,
+      StrAttr:$sym_name
+  );
+  let regions = (region SizedRegion<1> : $body);
+
+  let results = (outs);
+  let verifier = [{ return success(); }];
+  let extraClassDeclaration = [{
+    /// Returns the number of arguments. Hook for FunctionLike.
+    unsigned getNumFuncArguments() { return getType().getNumInputs(); }
+
+    /// Returns the number of results. Hook for FunctionLike.
+    unsigned getNumFuncResults() { return getType().getNumResults(); }
+
+    /// Hook for FunctionLike.
+    LogicalResult verifyType();
+
+    /// Hook for FunctionLike.
+    LogicalResult verifyBody();
+  }];
 }
 
 #endif // VERONA_OPS

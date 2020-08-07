@@ -113,10 +113,13 @@ namespace mlir::verona::detail
   struct ClassTypeStorage : public ::mlir::TypeStorage
   {
     std::string class_name;
+    ArrayRef<Type> arguments;
 
-    using KeyTy = StringRef;
+    using KeyTy = std::tuple<StringRef, ArrayRef<Type>>;
 
-    ClassTypeStorage(StringRef class_name) : class_name(class_name) {}
+    ClassTypeStorage(StringRef class_name, ArrayRef<Type> arguments)
+    : class_name(class_name), arguments(arguments)
+    {}
 
     static llvm::hash_code hashKey(const KeyTy& key)
     {
@@ -125,13 +128,16 @@ namespace mlir::verona::detail
 
     bool operator==(const KeyTy& key) const
     {
-      return key == class_name;
+      return key == std::tie(class_name, arguments);
     }
 
     static ClassTypeStorage*
     construct(TypeStorageAllocator& allocator, const KeyTy& key)
     {
-      return new (allocator.allocate<ClassTypeStorage>()) ClassTypeStorage(key);
+      StringRef class_name = allocator.copyInto(std::get<0>(key));
+      ArrayRef<mlir::Type> arguments = allocator.copyInto(std::get<1>(key));
+      return new (allocator.allocate<ClassTypeStorage>())
+        ClassTypeStorage(class_name, arguments);
     }
   };
 
@@ -232,9 +238,10 @@ namespace mlir::verona
     return getImpl()->capability;
   }
 
-  ClassType ClassType::get(MLIRContext* ctx, StringRef class_name)
+  ClassType ClassType::get(
+    MLIRContext* ctx, StringRef class_name, ArrayRef<Type> arguments)
   {
-    return Base::get(ctx, VeronaTypes::Class, class_name);
+    return Base::get(ctx, VeronaTypes::Class, class_name, arguments);
   }
 
   StringRef ClassType::getClassName() const
@@ -242,9 +249,14 @@ namespace mlir::verona
     return getImpl()->class_name;
   }
 
+  ArrayRef<Type> ClassType::getArguments() const
+  {
+    return getImpl()->arguments;
+  }
+
   ViewpointType ViewpointType::get(MLIRContext* ctx, Type left, Type right)
   {
-    return Base::get(ctx, VeronaTypes::Viewpoint, std::make_tuple(left, right));
+    return Base::get(ctx, VeronaTypes::Viewpoint, left, right);
   }
 
   Type ViewpointType::getLeftType() const
@@ -297,6 +309,30 @@ namespace mlir::verona
     return success();
   }
 
+  static ParseResult parseTypeArguments(
+    DialectAsmParser& parser, llvm::SmallVectorImpl<Type>& result)
+  {
+    if (parser.parseOptionalLSquare())
+      return success();
+
+    if (succeeded(parser.parseOptionalRSquare()))
+      return success();
+
+    do
+    {
+      mlir::Type element = parseVeronaType(parser);
+      if (!element)
+        return failure();
+
+      result.push_back(element);
+    } while (succeeded(parser.parseOptionalComma()));
+
+    if (parser.parseOptionalRSquare())
+      return failure();
+
+    return success();
+  }
+
   static Type parseMeetType(MLIRContext* ctx, DialectAsmParser& parser)
   {
     SmallVector<mlir::Type, 2> elements;
@@ -328,13 +364,14 @@ namespace mlir::verona
 
   static Type parseClassType(MLIRContext* ctx, DialectAsmParser& parser)
   {
-    FlatSymbolRefAttr attr;
+    FlatSymbolRefAttr name;
+    SmallVector<Type, 4> arguments;
     if (
-      parser.parseLess() || parser.parseAttribute(attr) ||
-      parser.parseGreater())
+      parser.parseLess() || parser.parseAttribute(name) ||
+      parseTypeArguments(parser, arguments) || parser.parseGreater())
       return Type();
 
-    return ClassType::get(ctx, attr.getValue());
+    return ClassType::get(ctx, name.getValue(), arguments);
   }
 
   static Type parseViewpointType(MLIRContext* ctx, DialectAsmParser& parser)
@@ -402,6 +439,14 @@ namespace mlir::verona
     llvm::interleaveComma(
       types, os, [&](auto element) { printVeronaType(element, os); });
     os << ">";
+  }
+
+  static void printTypeArguments(ArrayRef<Type> types, DialectAsmPrinter& os)
+  {
+    os << "[";
+    llvm::interleaveComma(
+      types, os, [&](auto element) { printVeronaType(element, os); });
+    os << "]";
   }
 
   void printVeronaType(Type type, DialectAsmPrinter& os)
@@ -474,7 +519,13 @@ namespace mlir::verona
       case VeronaTypes::Class:
       {
         auto classType = type.cast<ClassType>();
-        os << "class<@" << classType.getClassName() << ">";
+        auto arguments = classType.getArguments();
+        os << "class<@" << classType.getClassName();
+        if (!arguments.empty())
+        {
+          printTypeArguments(arguments, os);
+        }
+        os << ">";
         break;
       }
 
@@ -582,15 +633,20 @@ namespace mlir::verona
   /// loops, which is probably more efficient and doesn't risk blowing the
   /// stack.
   Type normalizeMeet(
-    MLIRContext* ctx, SmallVectorImpl<Type>& normalized, ArrayRef<Type> rest)
+    Operation* op,
+    TypePolarity polarity,
+    SmallVectorImpl<Type>& normalized,
+    ArrayRef<Type> rest)
   {
+    MLIRContext* ctx = op->getContext();
+
     if (rest.empty())
       return MeetType::get(ctx, normalized);
 
-    Type element = normalizeType(rest.front());
+    Type element = normalizeType(op, polarity, rest.front());
     return distributeType<JoinType>(ctx, element, [&](auto inner) {
       normalized.push_back(inner);
-      auto result = normalizeMeet(ctx, normalized, rest.drop_front());
+      auto result = normalizeMeet(op, polarity, normalized, rest.drop_front());
       normalized.pop_back();
       return result;
     });
@@ -599,29 +655,33 @@ namespace mlir::verona
   /// Normalize a meet type.
   /// This function returns the normal form of `meet<elements...>`,
   /// distributing any nested joins.
-  Type normalizeMeet(MLIRContext* ctx, ArrayRef<Type> elements)
+  Type
+  normalizeMeet(Operation* op, TypePolarity polarity, ArrayRef<Type> elements)
   {
     SmallVector<Type, 4> result;
-    return normalizeMeet(ctx, result, elements);
+    return normalizeMeet(op, polarity, result, elements);
   }
 
   /// Normalize a join type.
   /// This function returns the normal form of `join<elements...>`. The only
   /// effect of this is individually normalizing the contents of `elements`.
-  Type normalizeJoin(MLIRContext* ctx, ArrayRef<Type> elements)
+  Type
+  normalizeJoin(Operation* op, TypePolarity polarity, ArrayRef<Type> elements)
   {
     SmallVector<Type, 4> result;
     llvm::transform(elements, std::back_inserter(result), [&](Type element) {
-      return normalizeType(element);
+      return normalizeType(op, polarity, element);
     });
-    return JoinType::get(ctx, result);
+    return JoinType::get(op->getContext(), result);
   }
 
-  Type normalizeViewpoint(MLIRContext* ctx, Type left, Type right)
+  Type normalizeViewpoint(
+    Operation* op, TypePolarity polarity, Type left, Type right)
   {
-    Type normalizedLeft = normalizeType(left);
-    Type normalizedRight = normalizeType(right);
+    Type normalizedLeft = normalizeType(op, polarity, left);
+    Type normalizedRight = normalizeType(op, polarity, right);
 
+    MLIRContext* ctx = op->getContext();
     return distributeAll(ctx, normalizedLeft, [&](Type distributedLeft) {
       return distributeAll(ctx, normalizedRight, [&](Type distributedRight) {
         return ViewpointType::get(ctx, distributedLeft, distributedRight);
@@ -629,29 +689,47 @@ namespace mlir::verona
     });
   }
 
-  Type normalizeType(Type type)
+  Type normalizeType(Operation* op, TypePolarity polarity, Type type)
   {
-    MLIRContext* ctx = type.getContext();
     assert(isaVeronaType(type));
     switch (type.getKind())
     {
       // These don't contain any nested types and need no expansion.
       case VeronaTypes::Integer:
       case VeronaTypes::Capability:
+        return type;
+
+      // We don't normalize type parameters inside a Class type, as we don't
+      // know which polarity to pick.
       case VeronaTypes::Class:
         return type;
 
+      case VeronaTypes::Variable:
+        switch (polarity)
+        {
+          case TypePolarity::Positive:
+            return type;
+
+          case TypePolarity::Negative:
+          {
+            SmallVector<Type, 4> normalized = {type};
+            Type bound = PolymorphicOp::getTypeVariableBound(
+              op, type.cast<VariableType>());
+            return normalizeMeet(op, polarity, normalized, {bound});
+          }
+        }
+
       case VeronaTypes::Join:
-        return normalizeJoin(ctx, type.cast<JoinType>().getElements());
+        return normalizeJoin(op, polarity, type.cast<JoinType>().getElements());
 
       case VeronaTypes::Meet:
-        return normalizeMeet(ctx, type.cast<MeetType>().getElements());
+        return normalizeMeet(op, polarity, type.cast<MeetType>().getElements());
 
       case VeronaTypes::Viewpoint:
       {
         auto viewpoint = type.cast<ViewpointType>();
         return normalizeViewpoint(
-          ctx, viewpoint.getLeftType(), viewpoint.getRightType());
+          op, polarity, viewpoint.getLeftType(), viewpoint.getRightType());
       }
 
       default:
@@ -752,10 +830,12 @@ namespace mlir::verona
         ClassOp classOp = SymbolTable::lookupNearestSymbolFrom<ClassOp>(
           op, classType.getClassName());
         FieldOp fieldOp = lookupClassField(classOp, name);
-        if (fieldOp)
-          return {fieldOp.type(), fieldOp.type()};
-        else
+        if (!fieldOp)
           return {nullptr, nullptr};
+
+        Type fieldType = PolymorphicOp::replaceTypeVariables(
+          fieldOp.type(), classType.getArguments());
+        return {fieldType, fieldType};
       }
 
       case VeronaTypes::Viewpoint:

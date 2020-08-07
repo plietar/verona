@@ -20,6 +20,12 @@ namespace mlir::verona
   uint64_t typeVariablesInScope(Operation* op);
   uint64_t freeTypeVariables(Type type);
 
+  enum class TypePolarity
+  {
+    Positive,
+    Negative,
+  };
+
   /// Normalize a type by distributing unions and intersections, putting the
   /// type in disjunctive normal form. This is a necessary step in order for
   /// subtyping to recognise certain relations.
@@ -30,7 +36,7 @@ namespace mlir::verona
   ///
   /// TODO: normalizing types is a potentially expensive operation, so we should
   /// try to cache the results.
-  Type normalizeType(Type type);
+  Type normalizeType(Operation* op, TypePolarity polarity, Type type);
 
   FieldOp lookupClassField(ClassOp classOp, StringRef name);
 
@@ -156,8 +162,11 @@ namespace mlir::verona
   : public Type::TypeBase<ClassType, Type, detail::ClassTypeStorage>
   {
     using Base::Base;
-    static ClassType get(MLIRContext* ctx, StringRef s);
+    static ClassType
+    get(MLIRContext* ctx, StringRef class_name, ArrayRef<Type> arguments);
+
     StringRef getClassName() const;
+    ArrayRef<Type> getArguments() const;
 
     static bool kindof(unsigned kind)
     {

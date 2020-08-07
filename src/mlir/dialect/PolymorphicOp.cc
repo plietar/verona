@@ -1,9 +1,9 @@
 #include "dialect/PolymorphicOp.h"
 
-#include "mlir/IR/OpImplementation.h"
 #include "dialect/VeronaTraits.h"
-#include "mlir/IR/Builders.h"
 #include "dialect/VeronaTypes.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/OpImplementation.h"
 
 namespace mlir::verona
 {
@@ -94,5 +94,76 @@ namespace mlir::verona
     auto attr = op->getAttrOfType<ArrayAttr>(getTypeParametersAttrName());
     assert(attr != nullptr);
     return attr;
+  }
+
+  Type PolymorphicOp::getTypeVariableBound(Operation* op, VariableType var)
+  {
+    size_t index = var.getIndex();
+    while (true)
+    {
+      if (op->hasTrait<OpTrait::PolymorphicOpTrait>())
+      {
+        size_t count = PolymorphicOp::getNumTypeParameters(op);
+        if (index >= count)
+          index -= count;
+        else
+          break;
+      }
+
+      op = op->getParentOp();
+    }
+
+    return getTypeParameterBound(op, index);
+  }
+
+  Type PolymorphicOp::replaceTypeVariables(Type type, ArrayRef<Type> values)
+  {
+    MLIRContext* ctx = type.getContext();
+    assert(isaVeronaType(type));
+    switch (type.getKind())
+    {
+      case VeronaTypes::Integer:
+      case VeronaTypes::Capability:
+        return type;
+
+      case VeronaTypes::Variable:
+        assert(type.cast<VariableType>().getIndex() < values.size());
+        return values[type.cast<VariableType>().getIndex()];
+
+      case VeronaTypes::Meet:
+      {
+        MeetType meet = type.cast<MeetType>();
+        SmallVector<Type, 4> elements;
+        replaceTypeVariables(meet.getElements(), values, elements);
+        return MeetType::get(ctx, elements);
+      }
+
+      case VeronaTypes::Join:
+      {
+        JoinType join = type.cast<JoinType>();
+        SmallVector<Type, 4> elements;
+        replaceTypeVariables(join.getElements(), values, elements);
+        return JoinType::get(ctx, elements);
+      }
+
+      case VeronaTypes::Class:
+      {
+        ClassType classType = type.cast<ClassType>();
+        SmallVector<Type, 4> arguments;
+        replaceTypeVariables(classType.getArguments(), values, arguments);
+        return ClassType::get(ctx, classType.getClassName(), arguments);
+      }
+
+      default:
+        abort();
+    }
+  }
+
+  void PolymorphicOp::replaceTypeVariables(
+    ArrayRef<Type> types, ArrayRef<Type> values, SmallVectorImpl<Type>& result)
+  {
+    llvm::transform(types, std::back_inserter(result), [&](Type type) {
+      return replaceTypeVariables(type, values);
+    });
   }
 }

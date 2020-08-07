@@ -114,59 +114,60 @@ namespace mlir::verona
   /// Set of rules used for subtype-checking. Each rule is checked (in the
   /// order they are laid out) until one of them works.
   ///
-  /// `RULES` is a callable object, which takes two Type values and returns a
-  /// boolean.
-  static constexpr auto RULES = detail::combineRules(
-    [](Type left, Type right) { return left == right; },
-    [](JoinType left, Type right) {
-      return llvm::all_of(left.getElements(), [&](Type element) {
-        return isSubtype(element, right);
-      });
-    },
-    [](Type left, MeetType right) {
-      return llvm::all_of(right.getElements(), [&](Type element) {
-        return isSubtype(left, element);
-      });
-    },
-    [](MeetType left, Type right) {
-      return llvm::any_of(left.getElements(), [&](Type element) {
-        return isSubtype(element, right);
-      });
-    },
-    [](Type left, JoinType right) {
-      return llvm::any_of(right.getElements(), [&](Type element) {
-        return isSubtype(left, element);
-      });
-    },
-    [](ViewpointType left, IntegerType right) {
-      auto ctx = left.getContext();
-      return isSubtype(left.getLeftType(), getAnyCapability(ctx)) &&
-        isSubtype(left.getRightType(), right);
-    },
-    [](ViewpointType left, ClassType right) {
-      auto ctx = left.getContext();
-      return isSubtype(left.getLeftType(), getAnyCapability(ctx)) &&
-        isSubtype(left.getRightType(), right);
-    },
-    [](ViewpointType left, CapabilityType right) {
-      auto ctx = left.getContext();
-      return right.getCapability() == Capability::Mutable &&
-        isSubtype(left.getLeftType(), getWritable(ctx)) &&
-        isSubtype(left.getRightType(), getWritable(ctx));
-    },
-    [](ViewpointType left, CapabilityType right) {
-      auto ctx = left.getContext();
-      return right.getCapability() == Capability::Immutable &&
-        isSubtype(left.getLeftType(), getImm(ctx)) &&
-        isSubtype(left.getRightType(), getImm(ctx));
-    });
-
-  bool isSubtype(Type lhs, Type rhs)
+  /// `subtypingRules` returns a callable object which takes two Type values and
+  /// returns a boolean.
+  auto subtypingRules(Operation* op)
   {
-    assert(isaVeronaType(lhs));
-    assert(isaVeronaType(rhs));
+    auto ctx = op->getContext();
+    return detail::combineRules(
+      [=](Type left, Type right) { return left == right; },
+      [=](JoinType left, Type right) {
+        return llvm::all_of(left.getElements(), [&](Type element) {
+          return isSubtype(op, element, right);
+        });
+      },
+      [=](Type left, MeetType right) {
+        return llvm::all_of(right.getElements(), [&](Type element) {
+          return isSubtype(op, left, element);
+        });
+      },
+      [=](MeetType left, Type right) {
+        return llvm::any_of(left.getElements(), [&](Type element) {
+          return isSubtype(op, element, right);
+        });
+      },
+      [=](Type left, JoinType right) {
+        return llvm::any_of(right.getElements(), [&](Type element) {
+          return isSubtype(op, left, element);
+        });
+      },
 
-    return RULES(lhs, rhs);
+      [=](ViewpointType left, IntegerType right) {
+        return isSubtype(op, left.getLeftType(), getAnyCapability(ctx)) &&
+          isSubtype(op, left.getRightType(), right);
+      },
+
+      [=](ViewpointType left, ClassType right) {
+        return isSubtype(op, left.getLeftType(), getAnyCapability(ctx)) &&
+          isSubtype(op, left.getRightType(), right);
+      },
+
+      [=](ViewpointType left, CapabilityType right) {
+        return right.getCapability() == Capability::Mutable &&
+          isSubtype(op, left.getLeftType(), getWritable(ctx)) &&
+          isSubtype(op, left.getRightType(), getWritable(ctx));
+      },
+
+      [=](ViewpointType left, CapabilityType right) {
+        return right.getCapability() == Capability::Immutable &&
+          isSubtype(op, left.getLeftType(), getImm(ctx)) &&
+          isSubtype(op, left.getRightType(), getImm(ctx));
+      });
+  }
+
+  bool isSubtype(Operation* op, Type lhs, Type rhs)
+  {
+    return subtypingRules(op)(lhs, rhs);
   }
 
   LogicalResult checkSubtype(Operation* op, Type lhs, Type rhs)
@@ -174,9 +175,9 @@ namespace mlir::verona
     assert(isaVeronaType(lhs));
     assert(isaVeronaType(rhs));
 
-    Type normalizedLeft = normalizeType(lhs);
-    Type normalizedRight = normalizeType(rhs);
-    if (!isSubtype(normalizedLeft, normalizedRight))
+    Type normalizedLeft = normalizeType(op, TypePolarity::Negative, lhs);
+    Type normalizedRight = normalizeType(op, TypePolarity::Positive, rhs);
+    if (!isSubtype(op, normalizedLeft, normalizedRight))
     {
       InFlightDiagnostic diag = op->emitError()
         << lhs << " is not a subtype of " << rhs;

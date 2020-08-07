@@ -24,7 +24,7 @@ namespace mlir::verona
 
   /// Returns true if `lhs` is a subtype of `rhs`.
   /// `lhs` and `rhs` should be in normal form already.
-  bool isSubtype(Type lhs, Type rhs);
+  bool isSubtype(Operation* op, Type lhs, Type rhs);
 
   /// Check whether `lhs` is a subtype of `rhs`. If it isn't, an error is
   /// emitted and a failure is returned.

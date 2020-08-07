@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mlir/IR/OpDefinition.h"
 #include "dialect/PolymorphicOp.h"
+#include "mlir/IR/OpDefinition.h"
 
 namespace mlir::verona
 {

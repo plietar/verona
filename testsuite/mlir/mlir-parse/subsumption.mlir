@@ -5,7 +5,7 @@
 // For instance, we can copy a value from type A & B to a value of type A.
 
 module {
-  func @test1(%a: !verona.meet<U64, imm>) -> !verona.imm {
+  verona.func @test1(%a: !verona.meet<U64, imm>) -> !verona.imm {
     // We can drop components of an intersection.
     %b = verona.copy %a : !verona.meet<U64, imm> -> !verona.U64
 
@@ -28,18 +28,23 @@ module {
     verona.return %a : !verona.meet<U64, imm>
   }
 
-  func @test2(%a: !verona.bottom) -> !verona.U64 {
+  verona.func @test2(%a: !verona.bottom) -> !verona.U64 {
     // Bottom (ie. an empty join) is a subtype of anything.
     verona.return %a: !verona.bottom
   }
 
-  func @test3(%a: !verona.meet<U64, imm>) -> (!verona.U64, !verona.imm) {
+  verona.func @test3(%a: !verona.meet<U64, imm>) -> (!verona.U64, !verona.imm) {
     // Return supports multiple operands, which are subtyped individually
     verona.return %a, %a : !verona.meet<U64, imm>, !verona.meet<U64, imm>
   }
 
-  func @test_distributivity(%a: !verona.meet<U64, join<iso, mut>>) -> !verona.join<meet<U64, iso>, meet<U64, mut>> {
+  verona.func @test_distributivity(%a: !verona.meet<U64, join<iso, mut>>) -> !verona.join<meet<U64, iso>, meet<U64, mut>> {
     // We allow distributivity of join over meets.
     verona.return %a: !verona.meet<U64, join<iso, mut>>
+  }
+
+  verona.func @test_bounds[!verona.top](%a: !verona.variable<0>) -> !verona.meet<U64, imm>
+  {
+    verona.return %a : !verona.variable<0>
   }
 }
