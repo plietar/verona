@@ -206,6 +206,10 @@ namespace mlir::verona
   {
     return JoinType::get(ctx, {getIso(ctx), getMut(ctx)});
   }
+  inline Type getSendable(MLIRContext* ctx)
+  {
+    return JoinType::get(ctx, {getIso(ctx), getImm(ctx)});
+  }
   inline Type getAnyCapability(MLIRContext* ctx)
   {
     return JoinType::get(ctx, {getIso(ctx), getMut(ctx), getImm(ctx)});

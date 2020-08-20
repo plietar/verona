@@ -8,6 +8,7 @@ endfunction()
 
 add_mlir_dialect(VeronaOps verona)
 add_mlir_interface(TypecheckInterface)
+add_mlir_interface(RegionChecker)
 add_mlir_passes(Verona Passes)
 
 add_mlir_doc(VeronaDialect -gen-dialect-doc VeronaDialect Verona/)
@@ -17,6 +18,7 @@ add_mlir_dialect_library(MLIRVerona
     VeronaDialect.cc
     VeronaOps.cc
     VeronaTypes.cc
+    RegionChecker.cc
     Typechecker.cc
     TypecheckInterface.cc
     TypeSyntax.cc
