@@ -3,13 +3,22 @@
 
 #pragma once
 
-#include "mlir/Pass/Pass.h"
+#include "mlir/IR/Function.h"
 
 namespace mlir::verona
 {
-  class RegionCheckerPass : public PassWrapper<RegionCheckerPass, FunctionPass>
+  struct StableFacts;
+  struct RegionAnalysis
   {
-    void runOnFunction() override;
+    RegionAnalysis(FuncOp operation);
+    void print(llvm::raw_ostream& os);
+
+    RegionAnalysis(const RegionAnalysis& other) = delete;
+    RegionAnalysis& operator=(const RegionAnalysis& other) = delete;
+
+  private:
+    DenseMap<Block*, StableFacts> facts;
+    FuncOp operation;
   };
 
   struct FactEvaluator;

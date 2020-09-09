@@ -8,6 +8,7 @@
 namespace mlir::verona
 {
   std::unique_ptr<Pass> createTypecheckerPass();
+  std::unique_ptr<OperationPass<ModuleOp>> createPrintTopologicalFactsPass();
 
 #define GEN_PASS_CLASSES
 #define GEN_PASS_REGISTRATION

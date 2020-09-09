@@ -11,4 +11,9 @@ def Typechecker : Pass<"typechecker"> {
   let constructor = "createTypecheckerPass()";
 }
 
+def PrintTopologicalFacts : Pass<"print-facts", "ModuleOp"> {
+  let summary = "Print topological facts inferred for each function.";
+  let constructor = "createPrintTopologicalFactsPass()";
+}
+
 #endif // VERONA_PASSES

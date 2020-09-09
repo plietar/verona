@@ -6,6 +6,7 @@
 #include "Query.h"
 #include "dialect/TopologicalFacts.h"
 #include "dialect/Typechecker.h"
+#include "dialect/Passes.h"
 #include "dialect/VeronaOps.h"
 #include "dialect/VeronaTypes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -413,14 +414,15 @@ namespace mlir::verona
     intersector.finish([&](auto fact) { add(fact); });
   }
 
-  void RegionCheckerPass::runOnFunction()
+  RegionAnalysis::RegionAnalysis(FuncOp operation) : operation(operation)
   {
     llvm::SetVector<Block*> worklist;
-    DenseMap<Block*, StableFacts> facts;
 
-    DominanceInfo dominance(getOperation());
+    // TODO: we should use OperationPass' getAnalysis, so we can get cached
+    // results, however we can't do that from within another analysis.
+    DominanceInfo dominance(operation);
 
-    worklist.insert(&getOperation().getCallableRegion()->front());
+    worklist.insert(&operation.getCallableRegion()->front());
     while (!worklist.empty())
     {
       Block* current = worklist.pop_back_val();
@@ -439,21 +441,42 @@ namespace mlir::verona
         worklist.insert(current->succ_begin(), current->succ_end());
       }
     }
+  }
 
-    // TODO: find a more appropriate way to print the results.
-    AsmState state(getOperation());
-    for (Block& block : getOperation())
+  /// Get a string representiation of each element `facts`, ordered by the
+  /// textual representiation.
+  ///
+  /// This ensures facts are printed in a deterministic order.
+  static SmallVector<std::string, 0> getSortedFacts(const StableFacts& facts, AsmState& state)
+  {
+    SmallVector<std::string, 0> result;
+    for (const auto& it : facts.aliases)
+    {
+      std::string s;
+      llvm::raw_string_ostream ss(s);
+      it.print(ss, state);
+      result.push_back(ss.str());
+    }
+    llvm::sort(result);
+    return result;
+  }
+
+  void RegionAnalysis::print(llvm::raw_ostream& os)
+  {
+    os << "Topological Facts for @" << operation.getName() << ":\n";
+    AsmState state(operation);
+    for (Block& block : operation)
     {
       const StableFacts& data = facts[&block];
-      block.printAsOperand(llvm::errs(), state);
-      llvm::errs() << "\n";
-      for (const auto& it : data.aliases)
+      os << "  Basic block ";
+      block.printAsOperand(os, state);
+      os << ":\n";
+      for (const auto& fact : getSortedFacts(data, state))
       {
-        llvm::errs() << "  ";
-        it.print(llvm::errs(), state);
-        llvm::errs() << "\n";
+        os << "    " << fact << "\n";
       }
     }
+    os << "\n";
   }
 
   void CopyOp::add_facts(FactEvaluator& facts)
@@ -474,6 +497,23 @@ namespace mlir::verona
   void FieldWriteOp::add_facts(FactEvaluator& facts)
   {
     facts.add(From(output(), origin(), {}));
+  }
+
+  class PrintTopologicalFactsPass : public PrintTopologicalFactsBase<PrintTopologicalFactsPass>
+  {
+    void runOnOperation() override {
+      getOperation().walk([&](FuncOp func) {
+          RegionAnalysis& analysis = getChildAnalysis<RegionAnalysis>(func);
+          analysis.print(llvm::errs());
+      });
+
+      markAllAnalysesPreserved();
+    }
+  };
+
+  std::unique_ptr<OperationPass<ModuleOp>> createPrintTopologicalFactsPass()
+  {
+    return std::make_unique<PrintTopologicalFactsPass>();
   }
 
 #include "dialect/RegionChecker.cpp.inc"
