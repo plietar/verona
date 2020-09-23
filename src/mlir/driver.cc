@@ -47,6 +47,7 @@ namespace mlir::verona
     // dialects, then LLVM dialect, before converting to LLVM IR.
     context.allowUnregisteredDialects();
 
+    applyPassManagerCLOptions(passManager);
 
     if (pipelineParser.hasAnyOccurrences())
     {

@@ -9,6 +9,7 @@
 #include "ast/sym.h"
 #include "dialect/Passes.h"
 #include "driver.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/ToolUtilities.h"
 
@@ -254,6 +255,10 @@ int main(int argc, char** argv)
   llvm::InitLLVM y(argc, argv);
 
   registerPasses();
+
+  mlir::registerAsmPrinterCLOptions();
+  mlir::registerMLIRContextCLOptions();
+  mlir::registerPassManagerCLOptions();
 
   // Parse cmd-line options
   cl::ParseCommandLineOptions(argc, argv, "Verona MLIR Generator\n");
