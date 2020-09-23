@@ -4,9 +4,9 @@
 #include "dialect/RegionChecker.h"
 
 #include "Query.h"
+#include "dialect/Passes.h"
 #include "dialect/TopologicalFacts.h"
 #include "dialect/Typechecker.h"
-#include "dialect/Passes.h"
 #include "dialect/VeronaOps.h"
 #include "dialect/VeronaTypes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -445,7 +445,8 @@ namespace mlir::verona
   /// textual representiation.
   ///
   /// This ensures facts are printed in a deterministic order.
-  static SmallVector<std::string, 0> getSortedFacts(const StableFacts& facts, AsmState& state)
+  static SmallVector<std::string, 0>
+  getSortedFacts(const StableFacts& facts, AsmState& state)
   {
     SmallVector<std::string, 0> result;
     for (const auto& it : facts.aliases)
@@ -492,12 +493,14 @@ namespace mlir::verona
     facts.add(In(output(), origin(), getFieldType()));
   }
 
-  class PrintTopologicalFactsPass : public PrintTopologicalFactsBase<PrintTopologicalFactsPass>
+  class PrintTopologicalFactsPass
+  : public PrintTopologicalFactsBase<PrintTopologicalFactsPass>
   {
-    void runOnOperation() override {
+    void runOnOperation() override
+    {
       getOperation().walk([&](FuncOp func) {
-          RegionAnalysis& analysis = getChildAnalysis<RegionAnalysis>(func);
-          analysis.print(llvm::errs());
+        RegionAnalysis& analysis = getChildAnalysis<RegionAnalysis>(func);
+        analysis.print(llvm::errs());
       });
 
       markAllAnalysesPreserved();
