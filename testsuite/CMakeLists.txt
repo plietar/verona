@@ -85,6 +85,7 @@ foreach(TEST_FOLDER ${TEST_FOLDERS})
   add_tests(ast-parse ${TEST_FOLDER})
   add_tests(mlir-parse ${TEST_FOLDER})
   add_tests(mlir-fail ${TEST_FOLDER})
+  add_tests(topological-facts ${TEST_FOLDER})
 endforeach()
 
 set_tests_properties(
