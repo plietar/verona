@@ -5,9 +5,29 @@
 
 #include "TypecheckInterface.h"
 #include "VeronaTypes.h"
+#include "dialect/Passes.h"
 
 namespace mlir::verona
 {
+  /// TypecheckerPass wraps the `typecheck` function into a conventional MLIR
+  /// pass, so it can easily be interleaved with other passes in a PassManager.
+  class TypecheckerPass : public TypecheckerBase<TypecheckerPass>
+  {
+    void runOnOperation() override
+    {
+      if (failed(typecheck(getOperation())))
+        signalPassFailure();
+
+      // Typechecking does not modify the IR, so all analysis are preserved.
+      markAllAnalysesPreserved();
+    }
+  };
+
+  std::unique_ptr<Pass> createTypecheckerPass()
+  {
+    return std::make_unique<TypecheckerPass>();
+  }
+
   LogicalResult typecheck(Operation* op)
   {
     auto callback = [](TypecheckInterface innerOp) -> WalkResult {
@@ -19,17 +39,6 @@ namespace mlir::verona
       return failure();
     else
       return success();
-  }
-
-  void TypecheckerPass::runOnOperation()
-  {
-    if (failed(typecheck(getOperation())))
-    {
-      signalPassFailure();
-    }
-
-    // Typechecking does not modify the IR, so all analysis are preserved.
-    markAllAnalysesPreserved();
   }
 
   namespace detail

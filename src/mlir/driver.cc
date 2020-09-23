@@ -3,7 +3,7 @@
 
 #include "driver.h"
 
-#include "dialect/Typechecker.h"
+#include "dialect/Passes.h"
 #include "generator.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -45,7 +45,7 @@ namespace mlir::verona
     context.allowUnregisteredDialects();
 
     // TODO: make the set of passes configurable from the command-line
-    passManager.addPass(std::make_unique<TypecheckerPass>());
+    passManager.addPass(createTypecheckerPass());
 
     if (optLevel > 0)
     {
