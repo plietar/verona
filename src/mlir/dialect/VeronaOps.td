@@ -41,7 +41,7 @@ def Verona_ViewOp : Verona_Op<"view", [ RegionCheck ]> {
     let verifier = [{ return success(); }];
 }
 
-def Verona_FieldReadOp : Verona_Op<"field_read", [ Typecheckable ]> {
+def Verona_FieldReadOp : Verona_Op<"field_read", [ Typecheckable, RegionCheck ]> {
     let summary = "Read a field from a reference";
     let description = [{
       Read the value of a field from a reference. The result value is always an

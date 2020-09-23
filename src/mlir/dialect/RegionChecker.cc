@@ -105,6 +105,8 @@ namespace mlir::verona
       aliases.add(fact);
     }
 
+    void add(In fact) {}
+
     /// Add facts derived from a basic block's operations.
     ///
     /// For example, if `block` contains a `%x = copy %y` operation, the fact
@@ -483,6 +485,11 @@ namespace mlir::verona
   void ViewOp::add_facts(FactEvaluator& facts)
   {
     facts.add(Alias(output(), input()));
+  }
+
+  void FieldReadOp::add_facts(FactEvaluator& facts)
+  {
+    facts.add(In(output(), origin(), getFieldType()));
   }
 
   class PrintTopologicalFactsPass : public PrintTopologicalFactsBase<PrintTopologicalFactsPass>
