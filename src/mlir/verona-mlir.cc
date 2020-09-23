@@ -7,6 +7,7 @@
 #include "ast/prec.h"
 #include "ast/ref.h"
 #include "ast/sym.h"
+#include "dialect/Passes.h"
 #include "driver.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/ToolUtilities.h"
@@ -42,7 +43,7 @@ namespace
     cl::values(clEnumValN(InputKind::MLIR, "mlir", "MLIR file")));
 
   // Optimisations enabled
-  static cl::opt<unsigned> optLevel(
+  cl::opt<unsigned> optLevel(
     "O",
     cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
              "(default = '-O0')"),
@@ -71,6 +72,8 @@ namespace
     cl::desc("Grammar file"),
     cl::value_desc("filename"),
     cl::init(path::directory(path::executable()).append("/grammar.peg")));
+
+  mlir::PassPipelineCLParser passPipeline("", "Compiler passes to run");
 
   /// Set default command-line arguments.
   ///
@@ -175,7 +178,7 @@ namespace
     }
 
     // Parse AST file into MLIR
-    mlir::verona::Driver driver(optLevel);
+    mlir::verona::Driver driver(passPipeline, optLevel);
     llvm::Error error = driver.readAST(m->ast);
     if (!error)
       error = driver.emitMLIR(output);
@@ -195,7 +198,7 @@ namespace
   mlir::LogicalResult processMLIRBuffer(
     std::unique_ptr<llvm::MemoryBuffer> buffer, llvm::raw_ostream& output)
   {
-    mlir::verona::Driver driver(optLevel, verifyDiagnostics);
+    mlir::verona::Driver driver(passPipeline, optLevel, verifyDiagnostics);
 
     llvm::Error error = driver.readMLIR(std::move(buffer));
     if (!error)
@@ -232,12 +235,25 @@ namespace
     else
       return processMLIRBuffer(std::move(input), output);
   }
+
+  /// Register passes that will be available for use from the command line
+  /// -pass-pipeline argument. This has no effect on the default pipeline.
+  void registerPasses()
+  {
+    mlir::verona::registerVeronaPasses();
+
+    // TODO: Register standard passes
+    // Most of them are pointless if we can't lower to the standard dialect.
+    // We could curate a list of relevant and useful passes we want to offer.
+  }
 } // namespace
 
 int main(int argc, char** argv)
 {
   // Set up pretty-print signal handlers
   llvm::InitLLVM y(argc, argv);
+
+  registerPasses();
 
   // Parse cmd-line options
   cl::ParseCommandLineOptions(argc, argv, "Verona MLIR Generator\n");

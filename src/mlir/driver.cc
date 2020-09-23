@@ -19,7 +19,10 @@
 
 namespace mlir::verona
 {
-  Driver::Driver(unsigned optLevel, bool enableDiagnosticsVerifier)
+  Driver::Driver(
+    const PassPipelineCLParser& pipelineParser,
+    unsigned optLevel,
+    bool enableDiagnosticsVerifier)
   : context(/*loadAllDialects=*/false),
     passManager(&context),
     enableDiagnosticsVerifier(enableDiagnosticsVerifier)
@@ -44,17 +47,23 @@ namespace mlir::verona
     // dialects, then LLVM dialect, before converting to LLVM IR.
     context.allowUnregisteredDialects();
 
-    // TODO: make the set of passes configurable from the command-line
-    passManager.addPass(createTypecheckerPass());
 
-    if (optLevel > 0)
+    if (pipelineParser.hasAnyOccurrences())
     {
-      passManager.addPass(mlir::createInlinerPass());
-      passManager.addPass(mlir::createSymbolDCEPass());
+      pipelineParser.addToPipeline(passManager);
+    }
+    else
+    {
+      passManager.addPass(createTypecheckerPass());
+      if (optLevel > 0)
+      {
+        passManager.addPass(mlir::createInlinerPass());
+        passManager.addPass(mlir::createSymbolDCEPass());
 
-      mlir::OpPassManager& funcPM = passManager.nest<mlir::FuncOp>();
-      funcPM.addPass(mlir::createCanonicalizerPass());
-      funcPM.addPass(mlir::createCSEPass());
+        mlir::OpPassManager& funcPM = passManager.nest<mlir::FuncOp>();
+        funcPM.addPass(mlir::createCanonicalizerPass());
+        funcPM.addPass(mlir::createCSEPass());
+      }
     }
   }
 

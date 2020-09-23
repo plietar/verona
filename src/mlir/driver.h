@@ -8,6 +8,7 @@
 #include "error.h"
 #include "mlir/IR/Module.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 
 #include "llvm/Support/SourceMgr.h"
 
@@ -29,7 +30,10 @@ namespace mlir::verona
   class Driver
   {
   public:
-    Driver(unsigned optLevel = 0, bool enableDiagnosticsVerifier = false);
+    Driver(
+      const PassPipelineCLParser& pipelineParser,
+      unsigned optLevel = 0,
+      bool enableDiagnosticsVerifier = false);
 
     // TODO: add a readSource function that parses Verona source code.
     // this might be more thinking about the error API of the Driver.
