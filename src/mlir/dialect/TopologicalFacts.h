@@ -4,7 +4,10 @@
 #pragma once
 
 #include "Query.h"
+#include "dialect/Typechecker.h"
 #include "dialect/VeronaTypes.h"
+
+#include "llvm/ADT/SetVector.h"
 
 /// Topological Facts are a static approximation on the runtime shape of the
 /// heap.
@@ -37,6 +40,67 @@ namespace mlir::verona
     }
   };
 
+  struct RegionRelationship
+  {
+    static std::optional<RegionRelationship> fromFieldType(Type type)
+    {
+      assert(isaVeronaType(type));
+
+      MLIRContext* ctx = type.getContext();
+      if (isSubtype(type, getWritable(ctx)))
+      {
+        bool isIso = isSubtype(type, getIso(ctx));
+        bool isMut = isSubtype(type, getMut(ctx));
+        return RegionRelationship { isIso, isMut };
+      }
+      else
+      {
+        return std::nullopt;
+      }
+    }
+
+    /*
+    static RegionRelationship bottom() {
+      return RegionRelationship(true, true);
+    }
+    */
+
+    static RegionRelationship mut() {
+      return RegionRelationship(false, true);
+    }
+
+    RegionRelationship concat(RegionRelationship other) const {
+      return RegionRelationship(
+        isStrictSubRegion || other.isStrictSubRegion,
+        isSameRegion && other.isSameRegion
+        );
+    }
+
+    RegionRelationship join(RegionRelationship other) const {
+      return RegionRelationship(
+        isStrictSubRegion && other.isStrictSubRegion,
+        isSameRegion && other.isSameRegion
+        );
+    }
+
+    bool operator<(RegionRelationship other) const {
+      return std::tie(isStrictSubRegion, isSameRegion) <
+        std::tie(other.isStrictSubRegion, other.isSameRegion);
+    }
+
+    friend llvm::raw_ostream& operator<<(llvm::raw_ostream& os, RegionRelationship self)
+    {
+      return os << self.isStrictSubRegion << " " << self.isSameRegion;
+    }
+
+    private:
+    RegionRelationship(bool isStrictSubRegion, bool isSameRegion) :
+      isStrictSubRegion(isStrictSubRegion), isSameRegion(isSameRegion) {}
+
+    bool isStrictSubRegion;
+    bool isSameRegion;
+  };
+
   /// The region of `left` is the same as or a child of the region of `right`.
   /// The precise nature of the relationship between `left` and `right` depends
   /// on `types`:
@@ -51,19 +115,17 @@ namespace mlir::verona
   ///   `left`'s region is somewhere in the region tree dominated by `right`.
   struct In
   {
-    In(Value left, Value right, ArrayRef<Type> types)
-    : left(left), right(right), types(types.begin(), types.end())
-    {
-      assert(areVeronaTypes(types));
-    }
+    In(Value left, Value right, RegionRelationship relationship)
+    : left(left), right(right), relationship(relationship)
+    {}
 
     Value left;
     Value right;
-    SmallVector<Type, 1> types;
+    RegionRelationship relationship;
 
     auto data() const
     {
-      return std::tie(left, right, types);
+      return std::tie(left, right, relationship);
     }
 
     void print(llvm::raw_ostream& os, AsmState& state) const
@@ -72,9 +134,7 @@ namespace mlir::verona
       Value(left).printAsOperand(os, state);
       os << ", ";
       Value(right).printAsOperand(os, state);
-      os << ", [";
-      llvm::interleaveComma(types, os, [&](const auto& type) { os << type; });
-      os << "])";
+      os << ", " << relationship << ")";
     }
   };
 

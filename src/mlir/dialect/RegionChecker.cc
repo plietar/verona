@@ -69,6 +69,7 @@ namespace mlir::verona
   struct StableFacts
   {
     SmallVector<Alias, 0> aliases;
+    SmallVector<In, 0> ins;
 
     StableFacts() {}
     explicit StableFacts(SmallVector<Alias, 0>&& aliases) : aliases(aliases) {}
@@ -98,7 +99,9 @@ namespace mlir::verona
 
   struct FactEvaluator
   {
-    FactEvaluator() : defined(engine), aliases(engine) {}
+    FactEvaluator()
+    : defined(engine), aliases(engine), ins_left(engine), ins_right(engine)
+    {}
 
     void add(Alias fact)
     {
@@ -187,6 +190,23 @@ namespace mlir::verona
           assert(r1.left == r2.left);
           return Alias(r1.right, r2.right);
         });
+
+      ins_right.from_copy(ins_left);
+
+      // in(x, y, { mut }) :- alias(x, y).
+      ins_left.from_map(aliases, [](const auto& r) -> In {
+        return In(r.left, r.right, RegionRelationship::mut());
+      });
+
+      // in(x, z, T1 · T2) :-
+      //   in(x, y, T1),
+      //   in(y, z, T2).
+      ins_left.from_join(
+        ins_right, ins_left, [](const auto& r1, const auto& r2) -> In {
+          assert(r1.left == r2.left);
+          auto relationship = r1.relationship.concat(r2.relationship);
+          return In(r1.left, r2.right, relationship);
+        });
     }
 
     /// Compator type made to operate on Value and Type.
@@ -213,11 +233,18 @@ namespace mlir::verona
         return std::lexicographical_compare(
           left.begin(), left.end(), right.begin(), right.end(), *this);
       }
+
+      bool operator()(RegionRelationship left, RegionRelationship right) const
+      {
+        return left < right;
+      }
     };
 
     QueryEngine engine;
     Relation<Defined, Index<ValueCmp, 0>> defined;
     Relation<Alias, Index<ValueCmp, 0, 1>> aliases;
+    Relation<In, Index<ValueCmp, 0, 1, 2>> ins_left;
+    Relation<In, Index<ValueCmp, 1, 0, 2>> ins_right;
   };
 
   /// A BranchMap transforms SSA values along an edge of the control flow graph,
@@ -456,6 +483,13 @@ namespace mlir::verona
       it.print(ss, state);
       result.push_back(ss.str());
     }
+    for (const auto& it : facts.ins)
+    {
+      std::string s;
+      llvm::raw_string_ostream ss(s);
+      it.print(ss, state);
+      result.push_back(ss.str());
+    }
     llvm::sort(result);
     return result;
   }
@@ -490,7 +524,9 @@ namespace mlir::verona
 
   void FieldReadOp::add_facts(FactEvaluator& facts)
   {
-    facts.add(In(output(), origin(), getFieldType()));
+    auto relation = RegionRelationship::fromFieldType(getFieldType());
+    if (relation)
+      facts.add(In(output(), origin(), *relation));
   }
 
   class PrintTopologicalFactsPass
