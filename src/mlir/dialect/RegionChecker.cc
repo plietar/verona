@@ -16,6 +16,53 @@
 
 #include "llvm/ADT/SetVector.h"
 
+namespace mlir::verona
+{
+  struct ValueCmp
+  {
+    bool operator()(Value left, Value right) const
+    {
+      return std::less()(left.getAsOpaquePointer(), right.getAsOpaquePointer());
+    }
+
+    bool operator()(Type left, Type right) const
+    {
+      return std::less()(left.getAsOpaquePointer(), right.getAsOpaquePointer());
+    }
+  };
+
+  template<>
+  struct lattice_traits<RegionRelationship>
+  {
+    static RegionRelationship
+    lub(const RegionRelationship& r1, const RegionRelationship& r2)
+    {
+      return r1.meet(r2);
+    }
+  };
+
+  void foo()
+  {
+    using l = IndexedLattice<
+      std::tuple<Value, Value>,
+      RegionRelationship,
+      Index<ValueCmp, 0, 1>>;
+    l lattice;
+    lattice.iterate();
+
+    using namespace std::placeholders;
+
+    Environment e = Environment({})
+                      .extend(std::make_tuple(_1), std::make_tuple(5))
+                      .extend(std::make_tuple(_3, _2), std::make_tuple(8, 4));
+
+    lattice(_1, _3).join(lattice(_1, _3)).execute([](Value x, auto y, Value z) {
+    });
+  }
+}
+
+#if 0
+
 /// The set of facts F(b) available in a block b is defined as follows:
 ///
 ///   F(b) = local-facts(b)
@@ -344,6 +391,7 @@ namespace mlir::verona
     {
       auto [it, inserted] =
         aliases.insert({fact, std::make_pair(0, predecessors)});
+
       assert(it->second.second <= predecessors);
 
       if (inserted || it->second.second < predecessors)
@@ -351,6 +399,24 @@ namespace mlir::verona
         it->second.first += 1;
       }
     }
+
+    void operator()(const In& fact)
+    {
+      auto key = std::make_pair(fact.left, fact.right);
+      auto value = std::make_tuple(RegionRelationship::bottom(), 0, predecessors);
+
+      auto [it, inserted] = ins.insert({ key, value });
+      std::get<0>(it->second) = std::get<0>(it->second).join(fact.relationship);
+
+      /*
+      assert(it->second.second <= predecessors);
+      if (inserted || it->second.second < predecessors)
+      {
+        it->second.first += 1;
+      }
+      */
+    }
+
 
     void next()
     {
@@ -379,11 +445,63 @@ namespace mlir::verona
   private:
     size_t predecessors = 0;
 
-    // For each fact, we keep track of 1) the number of predecessors that have
-    // added it and 2) the index of the last predecessor that has. The latter
-    // allows us to avoid spurious increments if a precessor has multiple copies
-    // of a fact.
-    DenseMap<Alias, std::pair<size_t, size_t>> aliases;
+    struct EntryBase
+    {
+      size_t count = 0;
+      size_t index = 0;
+
+      bool add(size_t i) {
+        if (index < i) {
+          index = i;
+          count += 1;
+          return true;
+        }
+        else
+          return false;
+      }
+
+      bool finish(size_t total) {
+        return count == total;
+      }
+    };
+
+    template<typename T>
+    struct Entry;
+
+    template<>
+    struct Entry<void> : public EntryBase { };
+
+    template<>
+    struct Entry<RegionRelationship> : private EntryBase
+    {
+      RegionRelationship accumulator = RegionRelationship::bottom();
+      RegionRelationship current = RegionRelationship::top();
+
+      bool add(size_t i, RegionRelationship value) {
+        if (EntryBase::add(i))
+        {
+          accumulator = accumulator.join(current);
+          current = value;
+          return true;
+        }
+        else
+        {
+          current = current.meet(value);
+          return false;
+        }
+      }
+
+      std::optional<RegionRelationship> finish(size_t total) {
+        if (EntryBase::finish(total)) {
+          return accumulator.join(current);
+        } else {
+          return std::nullopt;
+        }
+      }
+    };
+
+    DenseMap<Alias, Entry<void>> aliases;
+    DenseMap<std::pair<Value, Value>, Entry<RegionRelationship>> ins;
   };
 
   template<typename F>
@@ -483,6 +601,7 @@ namespace mlir::verona
       it.print(ss, state);
       result.push_back(ss.str());
     }
+
     for (const auto& it : facts.ins)
     {
       std::string s;
@@ -548,5 +667,6 @@ namespace mlir::verona
     return std::make_unique<PrintTopologicalFactsPass>();
   }
 
-#include "dialect/RegionChecker.cpp.inc"
+#  include "dialect/RegionChecker.cpp.inc"
 }
+#endif

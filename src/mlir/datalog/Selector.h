@@ -1,68 +1,12 @@
 #pragma once
-#include "Environment.h"
-#include "helpers.h"
 
-#include <type_traits>
+#include "Environment.h"
+#include "Relation.h"
 
 namespace mlir::verona
 {
-  /**
-   * Queries can be executed in two different modes: In Stable mode, only stable
-   * results are considered. In Delta mode, only results that depend on at least
-   * one recently computed value are considered.
-   */
-  enum class ExecutionMode
-  {
-    Stable,
-    Delta,
-  };
-
-  /**
-   * Type trait used to verify the type of a Selector with the type of a
-   * Relation.
-   *
-   * A selector is valid for a given relation if they have the same arity and if
-   * each element of the selector is either a placeholder or has the same type
-   * as the corresponding element of the relation.
-   *
-   * The trait is defined inductively on the size of the tuples.
-   */
-  template<typename S, typename C, typename = void>
-  struct is_valid_selector : std::false_type
-  {};
-
-  template<>
-  struct is_valid_selector<std::tuple<>, std::tuple<>> : std::true_type
-  {};
-
-  /**
-   * If the first element of the selector (Ph) is a placeholder, the first
-   * element of the relation (T) can be anything.
-   */
-  template<typename Ph, typename T, typename... S, typename... C>
-  struct is_valid_selector<
-    std::tuple<Ph, S...>,
-    std::tuple<T, C...>,
-    std::enable_if_t<(std::is_placeholder_v<Ph>> 0)>>
-  : is_valid_selector<std::tuple<S...>, std::tuple<C...>>
-  {};
-
-  /**
-   * If the first element of the selector (T) is not a placeholder, it must be
-   * the same as the first element of the relation.
-   */
-  template<typename T, typename... S, typename... C>
-  struct is_valid_selector<
-    std::tuple<T, S...>,
-    std::tuple<T, C...>,
-    std::enable_if_t<(std::is_placeholder_v<T> == 0)>>
-  : is_valid_selector<std::tuple<S...>, std::tuple<C...>>
-  {};
-
   template<typename... S>
   struct Join;
-  template<typename Fn, typename... S>
-  struct Producer;
 
   /**
    * A selector combines a reference to a Relation with a tuple of values. Each
@@ -77,188 +21,105 @@ namespace mlir::verona
   template<typename R, typename... Ts>
   struct Selector
   {
-    using relation_type = R;
-    using query_type = std::tuple<Ts...>;
-    using result_type = typename R::tuple_type;
-    using environment_type = initial_environment_t<query_type, result_type>;
-
     static_assert(
-      sizeof...(Ts) == std::tuple_size_v<typename R::tuple_type>,
-      "The selector must have the same arity as the relation it refers to");
-    static_assert(
-      is_valid_selector<std::tuple<Ts...>, typename R::tuple_type>::value);
+      is_valid_selector_v<std::tuple<Ts...>, typename R::tuple_type>);
 
-    R& relation;
-    std::tuple<Ts...> values;
-
-    Selector(R& relation, std::tuple<Ts...> values)
-    : relation(relation), values(values)
+    explicit Selector(R& relation, const std::tuple<Ts...>& pattern)
+    : relation(relation), pattern(pattern)
     {}
 
-    template<
-      typename R2,
-      typename... Ts2,
-      typename = std::enable_if_t<can_unify_v<
-        environment_type,
-        typename Selector<R2, Ts2...>::environment_type>>>
-    auto join(Selector<R2, Ts2...> other) const
+    struct iterator;
+    struct sentinel
+    {};
+
+    template<ExecutionMode mode = ExecutionMode::Stable>
+    iterator begin() const
     {
-      return Join(*this, other);
-    }
+      static_assert(is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type>);
 
-    template<
-      typename R2,
-      typename... Ts2,
-      typename = std::enable_if_t<can_unify_v<
-        environment_type,
-        typename Selector<R2, Ts2...>::environment_type>>>
-    auto operator&(Selector<R2, Ts2...> other) const
-    {
-      return Join(*this, other);
-    }
+      auto lower = R::meta::template make_search_bound<lower_limit>(pattern);
+      auto upper = R::meta::template make_search_bound<upper_limit>(pattern);
 
-    template<typename... S>
-    void operator+=(const Join<S...>& join)
-    {
-      relation +=
-        join.with([&](const auto& env) { return env.substitute(values); });
-    }
-  };
-
-  template<typename... S>
-  struct Join
-  {
-    static_assert(sizeof...(S) < 64);
-
-    template<size_t N>
-    struct result_type_impl;
-
-    template<size_t N>
-    struct result_type_impl
-    {
-      static_assert(N <= sizeof...(S));
-      using selector = std::tuple_element_t<N - 1, std::tuple<S...>>;
-      using type = unified_environment_t<
-        typename result_type_impl<N - 1>::type,
-        initial_environment_t<
-          typename selector::query_type,
-          typename selector::result_type>>;
-    };
-
-    template<>
-    struct result_type_impl<0>
-    {
-      using type = Environment<>;
-    };
-
-    using result_type = typename result_type_impl<sizeof...(S)>::type;
-
-    explicit Join(std::tuple<S...> selectors) : selectors(selectors) {}
-
-    template<
-      typename S1,
-      typename S2,
-      bool enable = sizeof...(S) == 2,
-      typename = std::enable_if_t<enable>>
-    explicit Join(S1 s1, S2 s2) : selectors{s1, s2}
-    {}
-
-    /**
-     * Extend a join with another Selector.
-     */
-    template<typename R, typename... Ts>
-    Join<S..., Selector<R, Ts...>> join(Selector<R, Ts...> other) const
-    {
-      return {std::tuple_cat(selectors, std::make_tuple(other))};
-    }
-
-    /**
-     * Execute this join, invoking fn for each Environment this join produces.
-     */
-    template<ExecutionMode mode, typename Fn>
-    void execute(Fn&& fn) const
-    {
+      const typename R::container_type* container;
       if constexpr (mode == ExecutionMode::Stable)
-        execute_impl<0, 0>(std::forward<Fn>(fn), empty_environment());
+        container = &relation.get().stable_values;
       else
-        execute_delta(std::forward<Fn>(fn));
+        container = &relation.get().recent_values;
+
+      return iterator(
+        pattern, container->lower_bound(lower), container->upper_bound(upper));
     }
 
-    template<
-      typename Fn,
-      typename = std::enable_if_t<std::is_invocable_v<Fn, result_type>>>
-    Producer<Fn, S...> with(Fn fn) const
+    sentinel end() const
     {
-      return Producer<Fn, S...>{fn, *this};
+      static_assert(is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type>);
+      return {};
     }
 
-    template<
-      typename Fn,
-      typename = std::enable_if_t<
-        result_type::is_complete &&
-        is_applicable_v<Fn, typename result_type::tuple_type>>>
-    auto with(Fn fn) const
+    template<typename E>
+    using rebound_t = Selector<R, value_substitution_t<E, Ts>...>;
+
+    template<typename... Es, typename = std::enable_if_t<is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type, Environment<Es...>>>>
+    rebound_t<Environment<Es...>> rebind(const Environment<Es...>& environment) const
     {
-      return with(
-        [=](const auto& env) { return std::apply(fn, env.values()); });
+      auto refined_pattern =
+        substitute<SubstituteLattice::No>(environment, pattern);
+      return Selector<R, value_substitution_t<Environment<Es...>, Ts>...>(
+        relation, refined_pattern);
+    }
+
+    struct iterator
+    {
+      using value_type =
+        initial_environment_t<std::tuple<Ts...>, typename R::value_type>;
+
+      value_type operator*() const
+      {
+        return make_environment(pattern, *current_it);
+      }
+
+      bool operator!=(sentinel)
+      {
+        return current_it != end_it;
+      }
+
+      iterator& operator++()
+      {
+        current_it++;
+        return *this;
+      }
+
+    private:
+      using underlying_iterator = typename R::container_type::const_iterator;
+
+      explicit iterator(
+        const std::tuple<Ts...>& pattern,
+        underlying_iterator begin,
+        underlying_iterator end)
+      : pattern(pattern), current_it(begin), end_it(end)
+      {}
+
+      friend class Selector;
+
+      std::tuple<Ts...> pattern;
+      underlying_iterator current_it;
+      underlying_iterator end_it;
+    };
+
+    template<typename... Es>
+    void insert(const Environment<Es...>& environment) const
+    {
+      relation.get().insert(substitute(environment, pattern));
+    }
+
+    template<typename R2, typename... Ts2>
+    auto join(Selector<R2, Ts2...> other)
+    {
+      return Join<Selector>(*this).join(other);
     }
 
   private:
-    std::tuple<S...> selectors;
-
-    template<uint64_t Recent = 1, typename Fn>
-    void execute_delta(Fn&& fn) const
-    {
-      static_assert(Recent > 0);
-      if constexpr (Recent < 1 << sizeof...(S))
-      {
-        execute_impl<0, Recent>(fn, empty_environment());
-        execute_delta<Recent + 1>(fn);
-      }
-    }
-
-    template<size_t I, uint64_t Recent, typename Fn, typename Env>
-    void execute_impl(Fn&& fn, const Env& env) const
-    {
-      if constexpr (I == sizeof...(S))
-      {
-        std::forward<Fn>(fn)(env);
-      }
-      else
-      {
-        constexpr ExecutionMode mode = (Recent & (1 << I)) == 0 ?
-          ExecutionMode::Stable :
-          ExecutionMode::Delta;
-
-        const auto& selector = std::get<I>(selectors);
-        auto pattern = env.substitute(selector.values);
-
-        auto [begin, end] = selector.relation.template search<mode>(pattern);
-        for (auto it = begin; it != end; it++)
-        {
-          auto updated = unify(env, make_environment(selector.values, *it));
-          execute_impl<I + 1, Recent>(fn, updated);
-        }
-      }
-    }
-  };
-
-  template<typename S1, typename S2>
-  Join(S1, S2)->Join<S1, S2>;
-
-  template<typename Fn, typename... S>
-  struct Producer
-  {
-    using result_type =
-      std::invoke_result_t<Fn, typename Join<S...>::result_type>;
-
-    Fn fn;
-    Join<S...> join;
-
-    template<ExecutionMode mode, typename Cb>
-    void execute(Cb&& cb) const
-    {
-      join.template execute<mode>([&](const auto& env) { cb(fn(env)); });
-    }
+    mutable std::reference_wrapper<R> relation;
+    std::tuple<Ts...> pattern;
   };
 }

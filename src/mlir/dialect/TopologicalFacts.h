@@ -51,7 +51,7 @@ namespace mlir::verona
       {
         bool isIso = isSubtype(type, getIso(ctx));
         bool isMut = isSubtype(type, getMut(ctx));
-        return RegionRelationship { isIso, isMut };
+        return RegionRelationship{isIso, isMut};
       }
       else
       {
@@ -59,43 +59,58 @@ namespace mlir::verona
       }
     }
 
-    /*
-    static RegionRelationship bottom() {
+    static RegionRelationship top()
+    {
       return RegionRelationship(true, true);
     }
-    */
 
-    static RegionRelationship mut() {
+    static RegionRelationship bottom()
+    {
+      return RegionRelationship(true, true);
+    }
+
+    static RegionRelationship mut()
+    {
       return RegionRelationship(false, true);
     }
 
-    RegionRelationship concat(RegionRelationship other) const {
+    RegionRelationship concat(RegionRelationship other) const
+    {
       return RegionRelationship(
         isStrictSubRegion || other.isStrictSubRegion,
-        isSameRegion && other.isSameRegion
-        );
+        isSameRegion && other.isSameRegion);
     }
 
-    RegionRelationship join(RegionRelationship other) const {
+    RegionRelationship join(RegionRelationship other) const
+    {
       return RegionRelationship(
         isStrictSubRegion && other.isStrictSubRegion,
-        isSameRegion && other.isSameRegion
-        );
+        isSameRegion && other.isSameRegion);
     }
 
-    bool operator<(RegionRelationship other) const {
+    RegionRelationship meet(RegionRelationship other) const
+    {
+      return RegionRelationship(
+        isStrictSubRegion || other.isStrictSubRegion,
+        isSameRegion || other.isSameRegion);
+    }
+
+    bool operator<(RegionRelationship other) const
+    {
       return std::tie(isStrictSubRegion, isSameRegion) <
         std::tie(other.isStrictSubRegion, other.isSameRegion);
     }
 
-    friend llvm::raw_ostream& operator<<(llvm::raw_ostream& os, RegionRelationship self)
+    friend llvm::raw_ostream&
+    operator<<(llvm::raw_ostream& os, RegionRelationship self)
     {
       return os << self.isStrictSubRegion << " " << self.isSameRegion;
     }
 
-    private:
-    RegionRelationship(bool isStrictSubRegion, bool isSameRegion) :
-      isStrictSubRegion(isStrictSubRegion), isSameRegion(isSameRegion) {}
+  private:
+    RegionRelationship(bool isStrictSubRegion, bool isSameRegion)
+    : isStrictSubRegion(isStrictSubRegion), isSameRegion(isSameRegion)
+    {}
 
     bool isStrictSubRegion;
     bool isSameRegion;

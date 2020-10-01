@@ -3,13 +3,110 @@
 
 #pragma once
 
-#include "llvm/ADT/ArrayRef.h"
+// #include "llvm/ADT/ArrayRef.h"
 
+#include <map>
 #include <optional>
 #include <tuple>
+#include <vector>
+
+template<size_t N>
+struct placeholder
+{
+  static_assert(N > 0);
+};
+
+template<size_t N>
+struct std::is_placeholder<placeholder<N>>
+{
+  static constexpr size_t value = N;
+};
+
+struct lower_limit
+{};
+struct upper_limit
+{};
 
 namespace mlir::verona
 {
+  struct Index
+  {
+    using is_transparent = void;
+
+    template<typename... Ts, typename... Us>
+    bool operator()(
+      const std::tuple<Ts...>& left, const std::tuple<Us...>& right) const
+    {
+      return compare<0>(left, right);
+    }
+
+    template<typename T>
+    bool compare_element(const T& left, const T& right) const
+    {
+      return std::less<>()(left, right);
+    }
+
+    bool compare_element(lower_limit, lower_limit) const
+    {
+      return false;
+    }
+
+    template<typename T>
+    bool compare_element(lower_limit, const T&) const
+    {
+      return true;
+    }
+
+    template<typename T>
+    bool compare_element(T&&, lower_limit) const
+    {
+      return false;
+    }
+
+    template<typename T>
+    bool compare_element(upper_limit, T&&) const
+    {
+      return false;
+    }
+
+    bool compare_element(upper_limit, upper_limit) const
+    {
+      return false;
+    }
+
+    template<typename T>
+    bool compare_element(T&&, upper_limit) const
+    {
+      return true;
+    }
+
+    template<size_t I, typename... Ts, typename... Us>
+    bool
+    compare(const std::tuple<Ts...>& left, const std::tuple<Us...> right) const
+    {
+      static_assert(sizeof...(Ts) == sizeof...(Us));
+      if constexpr (I < sizeof...(Ts))
+      {
+        using T = std::tuple_element_t<I, std::tuple<Ts...>>;
+        using U = std::tuple_element_t<I, std::tuple<Us...>>;
+
+        const T& l = std::get<I>(left);
+        const U& r = std::get<I>(right);
+        if (compare_element(l, r))
+          return true;
+        else if (compare_element(r, l))
+          return false;
+        else
+          return compare<I + 1>(left, right);
+      }
+      else
+      {
+        return false;
+      }
+    }
+  };
+
+#if 0
   /// Index provides a comparator that orders tuples in lexicographical order,
   /// but following a given field sequence. For example, when applied to pairs,
   /// `Index<_, 1, 0>` will first compare the second elements, and only if they
@@ -31,6 +128,8 @@ namespace mlir::verona
   template<typename Compare>
   struct Index<Compare>
   {
+    using is_transparent = void;
+
     template<typename T>
     bool operator()(const T& left, const T& right) const
     {
@@ -38,21 +137,75 @@ namespace mlir::verona
     }
   };
 
+  template<typename... T>
+  static constexpr bool
+    are_all_placeholders = (std::is_placeholder_v<T> && ...);
+
+  template<typename... Ts>
+  struct are_distinct_placeholders;
+  template<typename... Ts>
+  static constexpr bool are_distinct_placeholders_v =
+    are_distinct_placeholders<Ts...>::value;
+
+  template<>
+  struct are_distinct_placeholders<> : std::true_type
+  {};
+
+  template<typename T, typename... Ts>
+  struct are_distinct_placeholders<T, Ts...>
+  {
+    static constexpr bool value = are_distinct_placeholders_v<Ts...> &&
+      ((std::is_placeholder_v<T> != std::is_placeholder_v<Ts>)&&...);
+  };
+
   template<typename Compare, size_t Head, size_t... Tail>
   struct Index<Compare, Head, Tail...>
   {
-    template<typename... Ts>
-    bool
-    operator()(const std::tuple<Ts...>& left, const std::tuple<Ts...>& right)
+    using is_transparent = void;
+
+    template<typename... Ts, typename... Us>
+    bool operator()(
+      const std::tuple<Ts...>& left, const std::tuple<Us...>& right) const
     {
-      const auto& left_value = std::get<Head>(left);
-      const auto& right_value = std::get<Head>(right);
-      if (Compare()(left_value, right_value))
-        return true;
-      else if (Compare()(right_value, left_value))
+      using T = std::tuple_element_t<Head, std::tuple<Ts...>>;
+      using U = std::tuple_element_t<Head, std::tuple<Us...>>;
+
+      if constexpr (std::is_placeholder_v<T>> 0)
+      {
+        static_assert(std::is_placeholder_v<U> == 0);
+        static_assert(are_all_placeholders<
+                      std::tuple_element_t<Tail, std::tuple<Ts...>>...>);
+        static_assert(are_distinct_placeholders_v<
+                      T,
+                      std::tuple_element_t<Tail, std::tuple<Ts...>>...>);
+
         return false;
+      }
+      else if constexpr (std::is_placeholder_v<U>> 0)
+      {
+        static_assert(std::is_placeholder_v<T> == 0);
+        static_assert(are_all_placeholders<
+                      std::tuple_element_t<Tail, std::tuple<Us...>>...>);
+        static_assert(are_distinct_placeholders_v<
+                      T,
+                      std::tuple_element_t<Tail, std::tuple<Us...>>...>);
+        return true;
+      }
       else
-        return Index<Compare, Tail...>()(left, right);
+      {
+        static_assert(std::is_same_v<T, U>);
+
+        const T& left_value = std::get<Head>(left);
+        const U& right_value = std::get<Head>(right);
+        if (Compare()(left_value, right_value))
+          return true;
+        else if (Compare()(right_value, left_value))
+          return false;
+        else
+          return Index<Compare, Tail...>()(left, right);
+      }
+
+      return true;
     }
 
     /// Retrieve the "primary" element of the tuple, that is the one that is
@@ -63,11 +216,13 @@ namespace mlir::verona
       return std::get<Head>(value);
     }
 
+    /*
     template<typename T>
-    bool operator()(const T& left, const T& right)
+    bool operator()(const T& left, const T& right) const
     {
       return (*this)(left.data(), right.data());
     }
+    */
 
     template<typename T>
     static const auto& get_primary(const T& value)
@@ -93,7 +248,9 @@ namespace mlir::verona
     template<typename T>
     static constexpr bool is_index_v = is_index<T>::value;
   }
+#endif
 
+#if 0
   struct QueryEngine;
 
   /// Type-erased version of a Relation, used to be stored in a QueryEngine.
@@ -553,4 +710,301 @@ namespace mlir::verona
   {
     engine.add(this);
   }
+#endif
+
+  template<typename T>
+  struct lattice_traits;
+
+  // static T bottom();
+  // static T top();
+  // static T lub(const T&, const T&);
+  // static T gub(const T&, const T&);
+
+  /// Search for an occurrence of placeholder P in the types Qs....
+  // template<size_t P, typename... Qs>
+  // constexpr std::optional<size_t> find_placeholder();
+
+  template<size_t P>
+  constexpr std::optional<size_t> find_placeholder()
+  {
+    return std::nullopt;
+  }
+
+  template<size_t P, typename Q, typename... Qs>
+  constexpr std::optional<size_t> find_placeholder()
+  {
+    static_assert(P > 0);
+
+    if constexpr (std::is_placeholder_v<Q> == P)
+      return 0;
+    else if constexpr (constexpr auto idx = find_placeholder<P, Qs...>())
+      return *idx + 1;
+    else
+      return std::nullopt;
+  }
+
+  static_assert(find_placeholder<1>() == std::nullopt);
+  static_assert(find_placeholder<1, int>() == std::nullopt);
+  static_assert(find_placeholder<1, placeholder<1>>() == 0);
+  static_assert(find_placeholder<1, placeholder<2>, placeholder<1>>() == 1);
+  static_assert(find_placeholder<2, placeholder<2>, placeholder<1>>() == 0);
+  static_assert(
+    find_placeholder<3, placeholder<2>, placeholder<1>>() == std::nullopt);
+
+  template<typename... Ts>
+  struct Environment;
+
+  template<typename... Ts>
+  Environment<Ts...> mkEnvironment(std::tuple<Ts...> values)
+  {
+    return Environment<Ts...>(values);
+  }
+
+  template<typename... Ts>
+  struct Environment
+  {
+    std::tuple<Ts...> values;
+
+    explicit Environment(std::tuple<Ts...> values) : values(values) {}
+
+    template<typename... Qs, typename... Rs>
+    auto extend(std::tuple<Qs...> query, std::tuple<Rs...> results) const
+    {
+      static_assert(sizeof...(Qs) == sizeof...(Rs));
+      constexpr size_t N = sizeof...(Ts);
+      constexpr size_t M = std::max({N, std::is_placeholder_v<Qs>...});
+
+      return extend_impl(std::make_index_sequence<M>(), query, results);
+    }
+
+    template<typename... Us>
+    auto substitute(const std::tuple<Us...>& t) const
+    {
+      return substitute_impl(std::index_sequence_for<Us...>(), t);
+    }
+
+    template<typename Fn>
+    std::invoke_result_t<Fn&&, const Ts&...> apply(Fn&& fn) const
+    {
+      static_assert(((std::is_placeholder_v<Ts> == 0) && ...));
+      return std::apply(std::forward<Fn>(fn), values);
+    }
+
+  private:
+    template<size_t... Ps, typename... Qs, typename... Rs>
+    auto extend_impl(
+      std::index_sequence<Ps...>,
+      std::tuple<Qs...> query,
+      std::tuple<Rs...> results) const
+    {
+      return mkEnvironment(
+        std::make_tuple(extend_value<Ps>(query, results)...));
+    }
+
+    template<size_t P, typename... Qs, typename Rs>
+    auto extend_value(std::tuple<Qs...> query, const Rs& results) const
+    {
+      constexpr std::optional<size_t> idx = find_placeholder<P + 1, Qs...>();
+      if constexpr (idx.has_value())
+        return std::get<*idx>(results);
+      else if constexpr (P < sizeof...(Ts))
+        return std::get<P>(values);
+      else
+        return placeholder<P + 1>();
+    }
+
+    template<size_t... I, typename... Us>
+    auto
+    substitute_impl(std::index_sequence<I...>, const std::tuple<Us...>& t) const
+    {
+      return std::make_tuple(substitute_value(std::get<I>(t))...);
+    }
+
+    template<typename U>
+    auto substitute_value(const U& x) const
+    {
+      constexpr size_t P = std::is_placeholder_v<U>;
+      if constexpr (P > 0 && P <= sizeof...(Ts))
+        return std::get<P - 1>(values);
+      else
+        return x;
+    }
+  };
+
+  template<typename... Qs>
+  struct Join
+  {
+    static_assert(sizeof...(Qs) < 64);
+    std::tuple<Qs...> queries;
+
+    template<typename Q>
+    Join<Qs..., Q> join(Q other) const
+    {
+      return {std::tuple_cat(queries, std::make_tuple(other))};
+    }
+
+    template<typename Fn>
+    void execute(Fn&& fn) const
+    {
+      execute_impl<0, 0>(fn, Environment<>({}));
+    }
+
+    template<uint64_t Recent = 1, typename Fn>
+    void execute_delta(Fn&& fn) const
+    {
+      static_assert(Recent > 0);
+      if constexpr (Recent < 1 << sizeof...(Qs))
+      {
+        execute_impl<0, Recent>(fn, Environment<>({}));
+        execute_delta<Recent + 1>(fn);
+      }
+    }
+
+  private:
+    template<size_t I, uint64_t Recent, typename Fn, typename Env>
+    void execute_impl(const Fn& fn, const Env& env) const
+    {
+      if constexpr (I == sizeof...(Qs))
+      {
+        env.apply(fn);
+      }
+      else
+      {
+        const auto& query = std::get<I>(queries);
+        auto pattern = env.substitute(query.values);
+
+        if constexpr ((Recent & (1 << I)) == 0)
+        {
+          auto [begin, end] = query.relation.search_stable(pattern);
+          for (auto it = begin; it != end; it++)
+          {
+            execute_impl<I + 1, Recent>(fn, env.extend(pattern, it->first));
+          }
+        }
+        else
+        {
+          auto [begin, end] = query.relation.search_recent(pattern);
+          for (auto it = begin; it != end; it++)
+          {
+            execute_impl<I + 1, Recent>(fn, env.extend(pattern, it->first));
+          }
+        }
+      }
+    }
+  };
+
+  template<typename... Qs>
+  Join<Qs...> join(Qs... queries)
+  {
+    return Join<Qs...>{std::make_tuple(queries...)};
+  }
+
+  template<typename R, typename... Ts>
+  struct Query
+  {
+    const R& relation;
+    std::tuple<Ts...> values;
+
+    Query(const R& relation, std::tuple<Ts...> values)
+    : relation(relation), values(values)
+    {}
+
+    template<typename R2, typename... Ts2>
+    Join<Query<R, Ts...>, Query<R2, Ts2...>> join(Query<R2, Ts2...> other) const
+    {
+      return {std::make_tuple(*this, other)};
+    }
+  };
+
+  template<typename Key, typename Value, typename Compare>
+  struct IndexedLattice
+  {
+    using lattice = lattice_traits<Value>;
+
+    bool iterate()
+    {
+      for (const auto& value : recent_values)
+      {
+        auto [it, inserted] = stable_values.insert(value);
+        if (!inserted)
+          it->second = value.second;
+      }
+      recent_values.clear();
+
+      for (const auto& value : pending_values)
+      {
+        auto [it, inserted] = recent_values.insert(value);
+        if (!inserted)
+        {
+          it->second = lattice::lub(it->second, value.second);
+        }
+        else if (auto stable_it = stable_values.find(value.first);
+                 stable_it != stable_values.end())
+        {
+          it->second = lattice::lub(it->second, stable_it->second);
+        }
+      }
+      pending_values.clear();
+
+      return !recent_values.empty();
+    }
+
+    template<typename B, typename T>
+    static auto make_bound(const T& value)
+    {
+      if constexpr (std::is_placeholder_v<T>> 0)
+        return B();
+      else
+        return value;
+    }
+
+    template<typename B, typename... Ts, size_t... Is>
+    static auto
+    make_bound(const std::tuple<Ts...>& values, std::index_sequence<Is...>)
+    {
+      return std::make_tuple(make_bound<B>(std::get<Is>(values))...);
+    }
+
+    template<typename... Ts>
+    static auto search_in(
+      const std::map<Key, Value, Compare>& values,
+      const std::tuple<Ts...>& pattern)
+    {
+      auto lower =
+        make_bound<lower_limit>(pattern, std::index_sequence_for<Ts...>());
+      auto upper =
+        make_bound<upper_limit>(pattern, std::index_sequence_for<Ts...>());
+      return std::make_pair(
+        values.lower_bound(lower), values.upper_bound(upper));
+    }
+
+    template<typename... Ts>
+    auto search_stable(const std::tuple<Ts...>& pattern) const
+    {
+      return search_in(stable_values, pattern);
+    }
+
+    template<typename... Ts>
+    auto search_recent(const std::tuple<Ts...>& pattern) const
+    {
+      return search_in(recent_values, pattern);
+    }
+
+    template<typename... Ts>
+    Query<IndexedLattice, Ts...> operator()(Ts... keys)
+    {
+      return Query(*this, std::make_tuple(keys...));
+    }
+
+    void add(Key key, Value value)
+    {
+      pending_values.push_back({key, value});
+    }
+
+    std::map<Key, Value, Compare> stable_values;
+    std::map<Key, Value, Compare> recent_values;
+
+    std::vector<std::pair<Key, Value>> pending_values;
+  };
+
 }

@@ -49,4 +49,57 @@ namespace mlir::verona
   {
     return forall_impl(std::forward<Fn>(fn), std::make_index_sequence<N>());
   }
+
+  /// https://wg21.link/P1830R1
+  template<bool value, typename... Args>
+  static constexpr bool dependent_bool_value = value;
+
+  template<typename... Args>
+  static constexpr bool dependent_false = dependent_bool_value<false, Args...>;
+
+  template<typename T1, typename T2>
+  struct integer_sequence_cat;
+
+  template<typename T, size_t... I, size_t... J>
+  struct integer_sequence_cat<
+    std::integer_sequence<T, I...>,
+    std::integer_sequence<T, J...>>
+  {
+    using type = std::integer_sequence<T, I..., J...>;
+  };
+  template<typename T1, typename T2>
+  using integer_sequence_cat_t = typename integer_sequence_cat<T1, T2>::type;
+
+  template<typename T, T I, typename T2>
+  using integer_sequence_cons_t =
+    integer_sequence_cat_t<std::integer_sequence<T, I>, T2>;
+
+  template<size_t I, typename T2>
+  using index_sequence_cons_t = integer_sequence_cons_t<size_t, I, T2>;
+
+  template<typename... Ts>
+  struct has_trailing_void;
+
+  template<>
+  struct has_trailing_void<> : std::false_type
+  {};
+
+  template<typename T, typename... Ts>
+  struct has_trailing_void<T, Ts...>
+  {
+    static constexpr size_t N = 1 + sizeof...(Ts);
+    using last_element = std::tuple_element_t<N - 1, std::tuple<T, Ts...>>;
+    static constexpr bool value = std::is_void_v<last_element>;
+  };
+
+  template<typename... Ts>
+  static constexpr bool has_trailing_void_v = has_trailing_void<Ts...>::value;
+
+  template<typename>
+  struct is_tuple : std::false_type
+  {};
+
+  template<typename... T>
+  struct is_tuple<std::tuple<T...>> : std::true_type
+  {};
 }

@@ -1,4 +1,8 @@
-#include "Query2.h"
+#include "datalog/Environment.h"
+#include "datalog/Join.h"
+#include "datalog/Lattice.h"
+#include "datalog/Relation.h"
+#include "datalog/Selector.h"
 
 #include <iostream>
 
@@ -23,32 +27,41 @@ std::ostream& operator<<(std::ostream& os, Colour c)
 
 auto operator"" _w(long double);
 
+template<>
+struct mlir::verona::lattice_traits<int>
+{
+  static int lub(int left, int right)
+  {
+    return left & right;
+  }
+  static int gub(int left, int right)
+  {
+    return left | right;
+  }
+};
+
 int main()
 {
-  IndexedLattice<std::tuple<int, int>, Index> edges;
-  edges.add({0, 1});
-  edges.add({1, 2});
-  edges.add({2, 3});
-  edges.add({4, 5});
+  Relation<std::tuple<int, char>> edges;
+  /*
+  edges.insert({0, 1});
+  edges.insert({1, 2});
+  edges.insert({2, 3});
+  edges.insert({4, 5});
 
+  while (edges.iterate())
   {
-    auto x = _1;
-    auto y = _2;
-    auto z = _3;
-
-    do
-    {
-      edges(x, z) += edges(x, y) & edges(y, z);
-    } while (edges.iterate());
+    edges(_1, _3) += edges(_1, _2) & edges(_2, _3);
   }
+  */
+
+  edges(_1, _2) & edges(_1, _1);
 
   /*
-   */
-
-  auto [begin, end] = edges.search_stable(std::make_tuple(_1, _1));
-  for (auto it = begin; it != end; it++)
-  {
-    auto [x, y] = *it;
-    std::cout << x << " " << y << std::endl;
-  }
+  Join(edges(_1, _2), edges(_2, _3))
+  .execute<ExecutionMode::Stable>([&](const Environment<int, int, int>& e) {
+    std::cout << e.get<0>() << " " << e.get<1>() << " " << e.get<2>()
+              << std::endl;
+  });
+  */
 }

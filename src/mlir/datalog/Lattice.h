@@ -32,4 +32,21 @@ namespace mlir::verona
   {};
   template<typename T>
   static constexpr bool is_lattice_v = is_lattice<T>::value;
+
+  struct unit
+  {};
+
+  template<>
+  struct lattice_traits<unit>
+  {
+    static unit lub(unit, unit)
+    {
+      return unit{};
+    }
+
+    static unit gub(unit, unit)
+    {
+      return unit{};
+    }
+  };
 };

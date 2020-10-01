@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Lattice.h"
-#include "Selector.h"
 
 #include <map>
 #include <set>
@@ -10,6 +9,92 @@
 
 namespace mlir::verona
 {
+  /**
+   * Queries can be executed in two different modes: In Stable mode, only stable
+   * results are considered. In Delta mode, only results that depend on at least
+   * one recently computed value are considered.
+   */
+  enum class ExecutionMode
+  {
+    Stable,
+    Delta,
+  };
+
+  /**
+   * Type trait used to verify the type of a Selector with the type of a
+   * Relation.
+   *
+   * A selector is valid for a given relation if they have the same arity and if
+   * each element of the selector is either a placeholder or has the same type
+   * as the corresponding element of the relation.
+   *
+   * The trait is defined inductively on the size of the tuples.
+   */
+  template<typename S, typename C, typename = void>
+  struct is_valid_selector : std::false_type
+  {};
+
+  template<>
+  struct is_valid_selector<std::tuple<>, std::tuple<>> : std::true_type
+  {};
+
+  /**
+   * If the first element of the selector (T) is not a placeholder, it must be
+   * the same as the first element of the relation.
+   */
+  template<typename T, typename... Ss, typename... Ts>
+  struct is_valid_selector<
+    std::tuple<T, Ss...>,
+    std::tuple<T, Ts...>,
+    std::enable_if_t<(std::is_placeholder_v<T> == 0)>>
+  : is_valid_selector<std::tuple<Ss...>, std::tuple<Ts...>>
+  {};
+
+  /**
+   * If the first element of the selector (P) is a placeholder, the first
+   * element of the relation (T) can be anything.
+   */
+  template<typename P, typename T, typename... Ss, typename... Ts>
+  struct is_valid_selector<
+    std::tuple<P, Ss...>,
+    std::tuple<T, Ts...>,
+    std::enable_if_t<(std::is_placeholder_v<P>> 0)>>
+  : is_valid_selector<std::tuple<Ss...>, std::tuple<Ts...>>
+  {};
+
+  template<typename Ss, typename Ts>
+  static constexpr bool is_valid_selector_v = is_valid_selector<Ss, Ts>::value;
+
+  template<typename Q, typename T, typename = void>
+  struct is_valid_query : std::false_type
+  {};
+
+  template<>
+  struct is_valid_query<std::tuple<>, std::tuple<>> : std::true_type
+  {};
+
+  template<typename Ph, typename T, typename... Qs, typename... Ts>
+  struct is_valid_query<
+    std::tuple<Ph, Qs...>,
+    std::tuple<T, Ts...>,
+    std::enable_if_t<std::is_placeholder_v<Ph> == 0 && !is_lattice_v<T>>>
+  : is_valid_query<std::tuple<Qs...>, std::tuple<Ts...>>
+  {};
+
+  template<typename P, typename T, typename... Qs, typename... Ts>
+  struct is_valid_query<
+    std::tuple<P, Qs...>,
+    std::tuple<T, Ts...>,
+    std::enable_if_t<
+      (std::is_placeholder_v<P>> 0) &&
+      ((std::is_placeholder_v<Qs>> 0) && ...) &&
+      ((std::is_placeholder_v<Qs> != std::is_placeholder_v<P>)&&...)>>
+  : is_valid_query<std::tuple<Qs...>, std::tuple<Ts...>>
+  {};
+
+  template<typename Q, typename T, typename E = Environment<>>
+  static constexpr bool is_valid_query_v = is_valid_query<substitution_t<E, Q>, T>::value;
+
   struct lower_limit
   {};
   struct upper_limit
@@ -19,13 +104,6 @@ namespace mlir::verona
   struct Index
   {
     using is_transparent = void;
-
-    template<typename>
-    struct is_tuple : std::false_type
-    {};
-    template<typename... T>
-    struct is_tuple<std::tuple<T...>> : std::true_type
-    {};
 
     template<
       typename... Ts,
@@ -101,91 +179,102 @@ namespace mlir::verona
     }
   };
 
+  template<typename T, size_t I = 0, typename = void>
+  struct relation_indices;
+
+  template<size_t I>
+  struct relation_indices<std::tuple<>, I>
+  {
+    using key_indices = std::index_sequence<>;
+    using mapped_indices = std::index_sequence<>;
+  };
+
+  template<typename T, typename... Ts, size_t I>
+  struct relation_indices<
+    std::tuple<T, Ts...>,
+    I,
+    std::enable_if_t<is_lattice_v<T>>>
+  {
+    using base = relation_indices<std::tuple<Ts...>, I + 1>;
+    using key_indices = typename base::key_indices;
+    using mapped_indices =
+      index_sequence_cons_t<I, typename base::mapped_indices>;
+
+    static_assert(
+      base::key_indices::size() == 0,
+      "Lattice types may not be interleaved with non-lattice ones.");
+  };
+
+  template<typename T, typename... Ts, size_t I>
+  struct relation_indices<
+    std::tuple<T, Ts...>,
+    I,
+    std::enable_if_t<!is_lattice_v<T>>>
+  {
+    using base = relation_indices<std::tuple<Ts...>, I + 1>;
+    using key_indices = index_sequence_cons_t<I, typename base::key_indices>;
+    using mapped_indices = typename base::mapped_indices;
+  };
+
   template<
-    typename Tuple,
-    typename Compare,
-    typename = std::make_index_sequence<std::tuple_size_v<Tuple> - 1>,
-    typename = void>
-  struct RelationMeta
-  {
-    using key_type = Tuple;
-    using value_type = Tuple;
-    using container_type = std::set<value_type, Index<Compare>>;
+    typename T,
+    typename = typename relation_indices<T>::key_indices,
+    typename = typename relation_indices<T>::mapped_indices>
+  struct relation_types;
 
-    static constexpr size_t arity = std::tuple_size_v<Tuple>;
-
-    template<
-      typename... Ts,
-      typename = std::enable_if_t<sizeof...(Ts) == arity>>
-    static const std::tuple<Ts...>&
-    search_pattern(const std::tuple<Ts...>& pattern)
-    {
-      return pattern;
-    }
-
-    template<
-      size_t I,
-      typename = std::enable_if_t<I<arity>> const
-        std::tuple_element_t<I, Tuple>& value_index(const value_type& value)
-    {
-      return std::get<I>(value);
-    }
-
-    template<typename... Ts>
-    static value_type value_construct(Ts&&... values)
-    {
-      return std::make_tuple(std::forward<Ts>(values)...);
-    }
-  };
-
-  template<typename Tuple, typename Compare, size_t... Idx>
-  struct RelationMeta<
+  template<typename Tuple, size_t... Keys, size_t... Mapped>
+  struct relation_types<
     Tuple,
-    Compare,
-    std::index_sequence<Idx...>,
-    std::enable_if_t<is_lattice<
-      std::tuple_element_t<std::tuple_size_v<Tuple> - 1, Tuple>>::value>>
+    std::index_sequence<Keys...>,
+    std::index_sequence<Mapped...>>
   {
-    using key_type = std::tuple<std::tuple_element_t<Idx, Tuple>...>;
-    using mapped_type =
-      std::tuple_element_t<std::tuple_size_v<Tuple> - 1, Tuple>;
+    static constexpr size_t Arity = std::tuple_size_v<Tuple>;
+    using key_type = std::tuple<std::tuple_element_t<Keys, Tuple>...>;
+    using mapped_type = std::tuple<std::tuple_element_t<Mapped, Tuple>...>;
     using value_type = std::pair<key_type, mapped_type>;
-    using container_type = std::map<key_type, mapped_type, Index<Compare>>;
 
-    static constexpr size_t arity = std::tuple_size_v<Tuple>;
+    static_assert(Arity == sizeof...(Keys) + sizeof...(Mapped));
 
-    template<
-      typename... Ts,
-      typename = std::enable_if_t<sizeof...(Ts) == arity>>
-    static auto search_pattern(const std::tuple<Ts...>& pattern)
+    static value_type assemble_value(Tuple tuple)
     {
-      return std::make_tuple(std::get<Idx>(pattern)...);
+      key_type key = std::make_tuple(std::get<Keys>(tuple)...);
+      mapped_type mapped = std::make_tuple(std::get<Mapped>(tuple)...);
+      return std::make_pair(key, mapped);
     }
 
     template<
-      size_t I,
-      typename = std::enable_if_t<I<arity>> const
-        std::tuple_element_t<I, Tuple>& value_index(const value_type& value)
+      typename B,
+      typename Pattern,
+      typename = std::enable_if_t<(std::tuple_size_v<Pattern> == Arity)>,
+      typename = std::enable_if_t<
+        ((std::is_placeholder_v<std::tuple_element_t<Mapped, Pattern>>> 0) &&
+         ...)>>
+    static auto make_search_bound(const Pattern& pattern)
     {
-      if constexpr (I < arity - 1)
-        return std::get<I>(value.first);
+      return std::make_tuple(make_search_bound_impl<B, Keys>(pattern)...);
+    }
+
+  private:
+    template<typename B, size_t I, typename Pattern>
+    static auto make_search_bound_impl(const Pattern& pattern)
+    {
+      using T = std::tuple_element_t<I, Tuple>;
+      using U = std::tuple_element_t<I, Pattern>;
+      if constexpr (std::is_placeholder_v<U>> 0)
+        return B();
       else
-        return value.second;
-    }
-
-    value_type static value_construct(
-      std::tuple_element_t<Idx, Tuple>... key, mapped_type mapped)
-    {
-      return std::make_pair(std::make_tuple(key...), mapped);
+        return T(std::get<I>(pattern));
     }
   };
+
+  template<typename R, typename... Ts>
+  struct Selector;
 
   template<typename Tuple, typename Compare = std::less<>>
-  struct Relation : public RelationMeta<Tuple, Compare>
+  struct Relation
   {
-    using meta = RelationMeta<Tuple, Compare>;
+    using meta = relation_types<Tuple>;
     using tuple_type = Tuple;
-    using index_type = Index<Compare>;
 
     bool iterate()
     {
@@ -218,80 +307,41 @@ namespace mlir::verona
       return !recent_values.empty();
     }
 
-    template<typename B, typename T, typename U>
-    static std::conditional_t<(std::is_placeholder_v<U>> 0), B, T>
-    make_bound(const U& value)
-    {
-      if constexpr (std::is_placeholder_v<U>> 0)
-        return B();
-      else
-        return T(value);
-    }
-
-    template<typename B, typename... Ts, size_t... Is>
-    static auto
-    make_bound(const std::tuple<Ts...>& values, std::index_sequence<Is...>)
-    {
-      return std::make_tuple(make_bound<B, std::tuple_element_t<Is, Tuple>>(
-        std::get<Is>(values))...);
-    }
-
-    template<ExecutionMode mode = ExecutionMode::Stable, typename... Ts>
-    auto search(const std::tuple<Ts...>& pattern) const
-    {
-      auto lower = meta::search_pattern(
-        make_bound<lower_limit>(pattern, std::index_sequence_for<Ts...>()));
-      auto upper = meta::search_pattern(
-        make_bound<upper_limit>(pattern, std::index_sequence_for<Ts...>()));
-
-      if constexpr (mode == ExecutionMode::Stable)
-        return std::make_pair(
-          stable_values.lower_bound(lower), stable_values.upper_bound(upper));
-      else
-        return std::make_pair(
-          recent_values.lower_bound(lower), recent_values.upper_bound(upper));
-    }
-
     template<typename... T>
     void emplace(T&&... values)
     {
-      pending_values.emplace_back(
-        meta::value_construct(std::forward<T>(values)...));
+      pending_values.push_back(
+        meta::assemble_value(std::make_tuple(values...)));
     }
 
-    void add(Tuple key)
+    void insert(Tuple key)
     {
-      pending_values.push_back(std::apply(meta::value_construct, key));
+      pending_values.push_back(meta::assemble_value(key));
     }
 
     template<
       typename... Ts,
       typename =
-        std::enable_if_t<is_valid_selector<std::tuple<Ts...>, Tuple>::value>>
-    Selector<Relation, Ts...> operator()(Ts... keys)
+        std::enable_if_t<is_valid_selector_v<std::tuple<Ts...>, Tuple>>>
+    Selector<Relation, Ts...> operator()(Ts... pattern)
     {
-      return Selector(*this, std::make_tuple(keys...));
+      return Selector<Relation, Ts...>(*this, std::make_tuple(pattern...));
     }
 
     Relation() = default;
     Relation(const Relation& other) = delete;
 
   private:
-    typename meta::container_type stable_values;
-    typename meta::container_type recent_values;
+    using key_type = typename meta::key_type;
+    using mapped_type = typename meta::mapped_type;
+    using value_type = typename meta::value_type;
+    using container_type = std::map<key_type, mapped_type, Index<Compare>>;
 
-    std::vector<typename meta::value_type> pending_values;
+    container_type stable_values;
+    container_type recent_values;
+    std::vector<value_type> pending_values;
+
+    template<typename R, typename... Ts>
+    friend struct Selector;
   };
-
-  template<
-    typename Tuple,
-    typename Compare,
-    typename P,
-    typename =
-      std::enable_if_t<std::is_convertible_v<typename P::result_type, Tuple>>>
-  void operator+=(Relation<Tuple, Compare>& relation, P&& producer)
-  {
-    std::forward<P>(producer).template execute<ExecutionMode::Delta>(
-      [&](Tuple entry) { relation.add(entry); });
-  }
 }
