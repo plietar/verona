@@ -1,8 +1,7 @@
-
 #pragma once
 
-#include "Lattice.h"
-#include "helpers.h"
+#include "datalog/helpers.h"
+#include "datalog/lattice.h"
 
 #include <algorithm>
 #include <functional>
@@ -10,10 +9,13 @@
 #include <tuple>
 #include <type_traits>
 
-namespace mlir::verona
+namespace datalog
 {
-  struct environment_hole
-  {};
+  namespace detail
+  {
+    struct environment_hole
+    {};
+  }
 
   /**
    * An Environment maps indices to concrete values. The mapped indices need not
@@ -22,8 +24,8 @@ namespace mlir::verona
    * Which indices are present in the environment and what type each index maps
    * to is reflected in the instantiation of the Environment template. For
    * example, an environment with signature { 0: int, 1: char, 3: float } would
-   * be represented by the C++ type Environment<int, char, void, float>. Notice
-   * the use of `void` to indicate the absence of value at index 2.
+   * be represented by the C++ type `Environment<int, char, void, float>`.
+   * Notice the use of `void` to indicate the absence of value at index 2.
    *
    * The typical way of constructing an environment is by binding a query with
    * its result, using the `make_environment` function. For each placeholder
@@ -37,18 +39,20 @@ namespace mlir::verona
    * 0-indexed. For example, substituting placeholder _2 using an environment
    * { 0 => A, 1 => B, 2 => C } will return value `B`. This is generally not an
    * issue, as the only two functions that relate placeholders to environments,
-   * `make_environment` and `substitute`, take care are mapping from one to
+   * `make_environment` and `substitute`, take care of mapping from one to
    * another.
    */
   template<typename... Ts>
   struct Environment
   {
+    using tuple_type = std::tuple<Ts...>;
+
     // We forbid any trailing void in Ts, as that would allow different
     // representations for the same environments, eg. Environment<int> and
     // Environment<int, void>.
     //
     // We could have canonical_enviroment_t<Ts...> definition to trim trailing
-    // voids and give the right Environment<> instantiation, but there doesn't
+    // voids and give the right Environment<> instantiation, but there hasn't
     // seem to be a need for it so far.
     static_assert(
       !has_trailing_void_v<Ts...>,
@@ -59,7 +63,7 @@ namespace mlir::verona
     // efficient, since each environment_hole may still occupy some space.
     template<typename T>
     using replace_void =
-      std::conditional_t<std::is_void_v<T>, environment_hole, T>;
+      std::conditional_t<std::is_void_v<T>, detail::environment_hole, T>;
 
     Environment(std::tuple<replace_void<Ts>...> values) : values_(values) {}
 
@@ -87,7 +91,7 @@ namespace mlir::verona
      * contain a value for that particular index.
      */
     template<size_t I>
-    std::enable_if_t<contains<I>, element_type<I>> get() const
+    const std::enable_if_t<contains<I>, element_type<I>>& get() const
     {
       return std::get<I>(values_);
     }
@@ -102,8 +106,7 @@ namespace mlir::verona
      * For contiguous environments, this method allows direct access to the
      * underlying tuple representation.
      */
-    std::conditional_t<is_contiguous, const std::tuple<Ts...>&, void>
-    values() const
+    std::conditional_t<is_contiguous, const tuple_type&, void> values() const
     {
       if constexpr (is_contiguous)
       {
@@ -111,17 +114,22 @@ namespace mlir::verona
       }
     }
 
-    using tuple_type =
-      std::conditional_t<is_contiguous, std::tuple<Ts...>, void>;
-
   private:
     std::tuple<replace_void<Ts>...> values_;
   };
 
+  /**
+   * Deduction guide for constructing an Environment from its values. This is
+   * necessary as the instantiation of the tuple may not match exactly the
+   * instantiation of the Environment, due to the void <-> environment_hole
+   * mapping.
+   */
   template<typename... Ts>
   Environment(const std::tuple<Ts...>& values)
-    ->Environment<
-      std::conditional_t<std::is_same_v<Ts, environment_hole>, void, Ts>...>;
+    ->Environment<std::conditional_t<
+      std::is_same_v<Ts, detail::environment_hole>,
+      void,
+      Ts>...>;
 
   /**
    * Create an empty environment.
@@ -131,6 +139,11 @@ namespace mlir::verona
     return Environment<>({});
   }
 
+  /**
+   * Given Q, an std::tuple, find the indices at which placeholder P occurs.
+   * This trait exposes a `type` member, which is an instantiation of
+   * std::index_sequence.
+   */
   template<size_t P, typename Q, size_t N = 0>
   struct placeholder_indices;
 
@@ -154,45 +167,38 @@ namespace mlir::verona
   };
 
   /**
-   * Find all occurences of placeholder P in the tuple Q. The computed type is
-   * an instantiation of std::index_sequence, encoding the index of each
-   * occurrence.
+   * Given Q, an std::tuple, find the indices at which placeholder P occurs.
+   * The computed type is an instantiation of std::index_sequence, encoding the
+   * index of each occurrence.
    */
   template<size_t P, typename Q>
   using placeholder_indices_t = typename placeholder_indices<P, Q>::type;
 
+  /**
+   * Look up a value in a result, directed by an index_sequence.
+   */
   template<typename R>
-  environment_hole lookup_result(const R& results, std::index_sequence<>)
+  detail::environment_hole
+  lookup_result(const R& results, std::index_sequence<>)
   {
-    return environment_hole();
+    return detail::environment_hole();
+  }
+
+  template<typename... Rs, typename L, size_t I>
+  auto lookup_result(
+    const std::pair<const std::tuple<Rs...>, L>& results,
+    std::index_sequence<I>)
+  {
+    if constexpr (I < sizeof...(Rs))
+      return std::get<I>(results.first);
+    else
+      return results.second;
   }
 
   template<typename... Rs, size_t I>
   auto lookup_result(const std::tuple<Rs...>& results, std::index_sequence<I>)
   {
     return std::get<I>(results);
-  }
-
-  template<typename... Rs1, typename... Rs2, size_t I>
-  auto lookup_result(
-    const std::pair<const std::tuple<Rs1...>, std::tuple<Rs2...>>& results,
-    std::index_sequence<I>)
-  {
-    if constexpr (I < sizeof...(Rs1))
-      return std::get<I>(results.first);
-    else
-      return std::get<I - sizeof...(Rs1)>(results.second);
-  }
-
-  template<typename... Rs1, typename... Rs2, size_t I>
-  auto lookup_result(
-    const std::pair<std::tuple<Rs1...>, std::tuple<Rs2...>>& results,
-    std::index_sequence<I>)
-  {
-    if constexpr (I < sizeof...(Rs1))
-      return std::get<I>(results.first);
-    else
-      return std::get<I - sizeof...(Rs1)>(results.second);
   }
 
   /**
@@ -203,13 +209,9 @@ namespace mlir::verona
    *
    * For instance, binding the query `(A, _1)` together with the result `(A, B)`
    * produces the environment { 0 => B }.
-   *
-   * `results` should either be a tuple of the same length as query, or
-   * `pair<const tuple<Ts...>, T>`. The latter is used for Relations that are
-   * internally represented as a std::map.
    */
   template<typename... Qs, typename R>
-  auto make_environment(std::tuple<Qs...> query, const R& results)
+  auto make_environment(const std::tuple<Qs...>& query, const R& results)
   {
     constexpr size_t N = std::max({0UL, std::is_placeholder_v<Qs>...});
     return Environment(generate_tuple<N>([&](auto I) {
@@ -236,11 +238,11 @@ namespace mlir::verona
   auto substitute_value(const Environment<Ts...>& environment, const U& value)
   {
     constexpr size_t P = std::is_placeholder_v<U>;
-    if constexpr (P > 0 && Environment<Ts...>::template contains<P - 1>)
+    if constexpr (P != 0 && Environment<Ts...>::template contains<P - 1>)
     {
       using Element = typename Environment<Ts...>::template element_type<P - 1>;
       if constexpr (
-        substitute_lattice == SubstituteLattice::Yes || !is_lattice_v<Element>)
+        !is_lattice_v<Element> || substitute_lattice == SubstituteLattice::Yes)
       {
         return environment.template get<P - 1>();
       }
@@ -270,73 +272,6 @@ namespace mlir::verona
     });
   }
 
-  template<typename E1, typename E2>
-  struct can_unify;
-  template<typename... Ts, typename... Us>
-  struct can_unify<Environment<Ts...>, Environment<Us...>>
-  {
-    static constexpr size_t N = std::max(sizeof...(Ts), sizeof...(Us));
-    static constexpr bool value = forall<N>([](auto I) {
-      using T = typename Environment<Ts...>::template element_type<I>;
-      using U = typename Environment<Us...>::template element_type<I>;
-      return std::is_void_v<T> || std::is_void_v<U> || std::is_same_v<T, U>;
-    });
-  };
-
-  /**
-   * Determine whether two Environment instantiations can be unified.
-   * Environments can be unified if the only indices they overlap on are lattice
-   * types.
-   */
-  template<typename E1, typename E2>
-  static constexpr bool can_unify_v = can_unify<E1, E2>::value;
-
-  template<
-    typename... Ts,
-    typename... Us,
-    typename =
-      std::enable_if_t<can_unify_v<Environment<Ts...>, Environment<Us...>>>>
-  auto unify(const Environment<Ts...>& left, const Environment<Us...>& right)
-  {
-    constexpr size_t N = std::max(sizeof...(Ts), sizeof...(Us));
-
-    return Environment(generate_tuple<N>([&](auto I) {
-      using T = typename Environment<Ts...>::template element_type<I>;
-      using U = typename Environment<Us...>::template element_type<I>;
-
-      if constexpr (!std::is_void_v<T> && !std::is_void_v<U>)
-      {
-        static_assert(std::is_same_v<T, U>);
-        const T& left_value = left.template get<I>();
-        const U& right_value = right.template get<I>();
-
-        if constexpr (is_lattice_v<T>)
-        {
-          return T::lub(left_value, right_value);
-        }
-        else
-        {
-          assert(left_value == right_value);
-          return left_value;
-        }
-      }
-      else if constexpr (!std::is_void_v<T>)
-        return left.template get<I>();
-      else if constexpr (!std::is_void_v<U>)
-        return right.template get<I>();
-      else
-        return environment_hole();
-    }));
-  }
-
-  template<typename Q, typename R>
-  using initial_environment_t = decltype(
-    make_environment(std::declval<const Q&>(), std::declval<const R&>()));
-
-  template<typename E1, typename E2>
-  using unified_environment_t =
-    decltype(unify(std::declval<const E1&>(), std::declval<const E2&>()));
-
   template<
     typename E,
     typename T,
@@ -351,12 +286,79 @@ namespace mlir::verona
   using value_substitution_t = decltype(substitute_value<substitute_lattice>(
     std::declval<const E&>(), std::declval<const T&>()));
 
+  template<typename E1, typename E2>
+  struct can_unify;
+  template<typename... Ts, typename... Us>
+  struct can_unify<Environment<Ts...>, Environment<Us...>>
+  {
+    static constexpr size_t N = std::max(sizeof...(Ts), sizeof...(Us));
+    static constexpr bool value = forall<N>([](auto I) {
+      using T = typename Environment<Ts...>::template element_type<I>;
+      using U = typename Environment<Us...>::template element_type<I>;
+      return std::is_void_v<T> || std::is_void_v<U> ||
+        (std::is_same_v<T, U> && is_lattice_v<T>);
+    });
+  };
+
+  /**
+   * Determine whether two Environment instantiations can be unified.
+   * Environments can be unified if, for each index where they overlap, both
+   * environments have the same type, and that type is a lattice.
+   */
+  template<typename E1, typename E2>
+  static constexpr bool can_unify_v = can_unify<E1, E2>::value;
+
+  /**
+   * Unify two environments. For indices where they overlap, the least upper
+   * bound of the two values is used.
+   */
+  template<
+    typename... Ts,
+    typename... Us,
+    typename =
+      std::enable_if_t<can_unify_v<Environment<Ts...>, Environment<Us...>>>>
+  auto unify(const Environment<Ts...>& left, const Environment<Us...>& right)
+  {
+    constexpr size_t N = std::max(sizeof...(Ts), sizeof...(Us));
+    return Environment(generate_tuple<N>([&](auto I) {
+      using T = typename Environment<Ts...>::template element_type<I>;
+      using U = typename Environment<Us...>::template element_type<I>;
+
+      if constexpr (!std::is_void_v<T> && !std::is_void_v<U>)
+      {
+        // These are already enforced by can_unify_v.
+        static_assert(std::is_same_v<T, U>);
+        static_assert(is_lattice_v<T>);
+
+        const T& left_value = left.template get<I>();
+        const U& right_value = right.template get<I>();
+
+        return T::glb(left_value, right_value);
+      }
+      else if constexpr (!std::is_void_v<T>)
+        return left.template get<I>();
+      else if constexpr (!std::is_void_v<U>)
+        return right.template get<I>();
+      else
+        return detail::environment_hole();
+    }));
+  }
+
+  template<typename Q, typename R>
+  using make_environment_t = decltype(
+    make_environment(std::declval<const Q&>(), std::declval<const R&>()));
+
+  template<typename E1, typename E2>
+  using unified_environment_t =
+    decltype(unify(std::declval<const E1&>(), std::declval<const E2&>()));
+
   void test_environment()
   {
-    static_assert(Environment<int, void, float>::contains<0>);
-    static_assert(!Environment<int, void, float>::contains<1>);
-    static_assert(Environment<int, void, float>::contains<2>);
-    static_assert(!Environment<int, void, float>::contains<3>);
+    using E = Environment<int, void, float>;
+    static_assert(E::contains<0>);
+    static_assert(!E::contains<1>);
+    static_assert(E::contains<2>);
+    static_assert(!E::contains<3>);
   }
 
   template<size_t P, typename Tuple, typename Expected>
@@ -389,11 +391,12 @@ namespace mlir::verona
   template<typename Q, typename R, typename Expected>
   void test_initial_environment()
   {
-    static_assert(std::is_same_v<initial_environment_t<Q, R>, Expected>);
+    static_assert(std::is_same_v<make_environment_t<Q, R>, Expected>);
   }
 
   void test_initial_environment()
   {
+    /*
     using namespace std;
     using PH1 = std::remove_cv_t<decltype(std::placeholders::_1)>;
     using PH2 = std::remove_cv_t<decltype(std::placeholders::_2)>;
@@ -412,6 +415,7 @@ namespace mlir::verona
       tuple<PH2, PH1>,
       tuple<char, int>,
       Environment<int, char>>();
+      */
   }
 
   template<typename E1, typename E2, bool Expected>
@@ -507,4 +511,26 @@ namespace mlir::verona
       tuple<PH1, char>>();
     */
   }
+}
+
+namespace std
+{
+  template<typename... Ts>
+  struct std::tuple_size<datalog::Environment<Ts...>>
+  : public integral_constant<size_t, sizeof...(Ts)>
+  {
+    static_assert(
+      datalog::Environment<Ts...>::is_contiguous,
+      "Cannot unpack non-contiguous environment");
+  };
+
+  template<size_t I, typename... Ts>
+  struct std::tuple_element<I, datalog::Environment<Ts...>>
+  {
+    static_assert(
+      datalog::Environment<Ts...>::is_contiguous,
+      "Cannot unpack non-contiguous environment");
+    using type =
+      const typename datalog::Environment<Ts...>::template element_type<I>;
+  };
 }

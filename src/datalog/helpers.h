@@ -2,7 +2,7 @@
 
 #include <tuple>
 
-namespace mlir::verona
+namespace datalog
 {
   template<typename F, typename Tuple, typename = void>
   struct is_applicable : std::false_type
@@ -48,6 +48,22 @@ namespace mlir::verona
   static constexpr bool forall(Fn&& fn)
   {
     return forall_impl(std::forward<Fn>(fn), std::make_index_sequence<N>());
+  }
+
+  template<
+    size_t... I,
+    typename Fn,
+    typename = std::enable_if_t<std::conjunction_v<
+      std::is_invocable_r<bool, Fn, std::integral_constant<size_t, I>>...>>>
+  static constexpr bool exists_impl(Fn&& fn, std::index_sequence<I...> indices)
+  {
+    return (fn(std::integral_constant<size_t, I>()) && ...);
+  }
+
+  template<size_t N, typename Fn>
+  static constexpr bool exists(Fn&& fn)
+  {
+    return exists_impl(std::forward<Fn>(fn), std::make_index_sequence<N>());
   }
 
   /// https://wg21.link/P1830R1
@@ -102,4 +118,24 @@ namespace mlir::verona
   template<typename... T>
   struct is_tuple<std::tuple<T...>> : std::true_type
   {};
+
+  template<
+    size_t Start,
+    size_t End,
+    typename Tuple,
+    typename Idx = std::make_index_sequence<End - Start>>
+  struct tuple_slice;
+
+  template<size_t Start, size_t End, typename Tuple, size_t... I>
+  struct tuple_slice<Start, End, Tuple, std::index_sequence<I...>>
+  {
+    using type = std::tuple<std::tuple_element_t<I + Start, Tuple>...>;
+  };
+
+  template<size_t Start, size_t End, typename Tuple>
+  using tuple_slice_t = typename tuple_slice<Start, End, Tuple>::type;
+
+  template<typename Tuple>
+  using tuple_last_element_t =
+    std::tuple_element_t<std::tuple_size_v<Tuple> - 1, Tuple>;
 }

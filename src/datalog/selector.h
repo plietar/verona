@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Environment.h"
-#include "Relation.h"
+#include "datalog/environment.h"
+#include "datalog/relation.h"
 
-namespace mlir::verona
+namespace datalog
 {
   template<typename... S>
   struct Join;
@@ -32,46 +32,45 @@ namespace mlir::verona
     struct sentinel
     {};
 
-    template<ExecutionMode mode = ExecutionMode::Stable>
-    iterator begin() const
+    template<ExecutionMode mode = ExecutionMode::Stable, typename R_ = R>
+    std::enable_if_t<
+      std::is_same_v<R_, R> &&
+        is_valid_query_v<std::tuple<Ts...>, typename R_::tuple_type>,
+      iterator>
+    begin() const
     {
-      static_assert(is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type>);
-
-      auto lower = R::meta::template make_search_bound<lower_limit>(pattern);
-      auto upper = R::meta::template make_search_bound<upper_limit>(pattern);
-
-      const typename R::container_type* container;
-      if constexpr (mode == ExecutionMode::Stable)
-        container = &relation.get().stable_values;
-      else
-        container = &relation.get().recent_values;
+      static_assert(
+        is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type>);
 
       return iterator(
-        pattern, container->lower_bound(lower), container->upper_bound(upper));
+        pattern,
+        relation.get().template lower_bound<mode>(pattern),
+        relation.get().template upper_bound<mode>(pattern));
     }
 
     sentinel end() const
     {
-      static_assert(is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type>);
       return {};
     }
 
-    template<typename E>
-    using rebound_t = Selector<R, value_substitution_t<E, Ts>...>;
-
-    template<typename... Es, typename = std::enable_if_t<is_valid_query_v<std::tuple<Ts...>, typename R::tuple_type, Environment<Es...>>>>
-    rebound_t<Environment<Es...>> rebind(const Environment<Es...>& environment) const
+    template<
+      typename E,
+      typename = std::enable_if_t<is_valid_selector_v<
+        substitution_t<E, std::tuple<Ts...>, SubstituteLattice::No>,
+        typename R::tuple_type>>>
+    auto rebind(const E& environment) const
     {
       auto refined_pattern =
         substitute<SubstituteLattice::No>(environment, pattern);
-      return Selector<R, value_substitution_t<Environment<Es...>, Ts>...>(
-        relation, refined_pattern);
+      return make_selector(relation.get(), refined_pattern);
     }
 
     struct iterator
     {
-      using value_type =
-        initial_environment_t<std::tuple<Ts...>, typename R::value_type>;
+      using underlying_iterator = typename R::iterator;
+      using value_type = make_environment_t<
+        std::tuple<Ts...>,
+        typename underlying_iterator::value_type>;
 
       value_type operator*() const
       {
@@ -90,8 +89,6 @@ namespace mlir::verona
       }
 
     private:
-      using underlying_iterator = typename R::container_type::const_iterator;
-
       explicit iterator(
         const std::tuple<Ts...>& pattern,
         underlying_iterator begin,
@@ -106,20 +103,38 @@ namespace mlir::verona
       underlying_iterator end_it;
     };
 
-    template<typename... Es>
-    void insert(const Environment<Es...>& environment) const
-    {
-      relation.get().insert(substitute(environment, pattern));
-    }
-
     template<typename R2, typename... Ts2>
     auto join(Selector<R2, Ts2...> other)
     {
       return Join<Selector>(*this).join(other);
     }
 
+    template<typename Fn>
+    auto with(Fn&& fn)
+    {
+      return Join<Selector>(*this).with(std::forward<Fn>(fn));
+    }
+
+    template<typename... S>
+    auto operator+=(const Join<S...>& join)
+    {
+      relation.get() +=
+        join.with([&](auto env) { return substitute(env, pattern); });
+    }
+
   private:
     mutable std::reference_wrapper<R> relation;
     std::tuple<Ts...> pattern;
+
+    template<typename R2, typename... T2>
+    static Selector<R2, T2...>
+    make_selector(R2& relation, const std::tuple<T2...>& pattern)
+    {
+      return Selector<R2, T2...>(relation, pattern);
+    }
   };
+
+  template<typename E, typename S>
+  using rebind_selector_t =
+    decltype(std::declval<const S&>().rebind(std::declval<const E&>()));
 }

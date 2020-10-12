@@ -1,13 +1,30 @@
 #pragma once
-#include "Selector.h"
-#include "helpers.h"
+#include "datalog/helpers.h"
+#include "datalog/selector.h"
 
 #include <type_traits>
 
-namespace mlir::verona
+namespace datalog
 {
   template<typename Fn, typename... S>
   struct Producer;
+
+  template<typename E, typename... S>
+  struct join_result;
+
+  template<typename E>
+  struct join_result<E>
+  {
+    using type = E;
+  };
+
+  template<typename E, typename S, typename... Tail>
+  struct join_result<E, S, Tail...>
+  {
+    using result = typename rebind_selector_t<E, S>::iterator::value_type;
+    using unified = unified_environment_t<E, result>;
+    using type = typename join_result<unified, Tail...>::type;
+  };
 
   template<typename... S>
   struct Join
@@ -16,38 +33,24 @@ namespace mlir::verona
 
     explicit Join(S... selectors) : selectors(selectors...) {}
 
-    template<size_t N>
-    struct result_type_impl;
-
-    template<>
-    struct result_type_impl<0>
-    {
-      using type = Environment<>;
-    };
-
-    template<size_t N>
-    struct result_type_impl
-    {
-      static_assert(N <= sizeof...(S));
-      using selector = std::tuple_element_t<N - 1, std::tuple<S...>>;
-      using base = typename result_type_impl<N - 1>::type;
-      using type = unified_environment_t<base, typename selector::template rebound_t<base>::iterator::value_type>;
-    };
-
-    using result_type = typename result_type_impl<sizeof...(S)>::type;
+    using result_type = typename join_result<Environment<>, S...>::type;
 
     /**
      * Extend a join with another Selector.
      */
     template<
-      typename Other,
-      typename = std::enable_if_t<
-        can_unify_v<result_type, typename Other::template rebound_t<result_type>::iterator::value_type>>>
-    Join<S..., Other> join(Other other) const
+      typename R,
+      typename... Ts,
+      typename = std::enable_if_t<is_valid_query_v<
+        substitution_t<result_type, std::tuple<Ts...>, SubstituteLattice::No>,
+        typename R::tuple_type>>>
+    Join<S..., Selector<R, Ts...>> join(Selector<R, Ts...> other) const
     {
-      return std::apply([&](auto... selectors) {
-        return Join<S..., Other>(selectors..., other);
-      }, selectors);
+      return std::apply(
+        [&](auto... selectors) {
+          return Join<S..., Selector<R, Ts...>>(selectors..., other);
+        },
+        selectors);
     }
 
     /**
@@ -142,15 +145,12 @@ namespace mlir::verona
       std::enable_if_t<std::is_convertible_v<typename P::result_type, Tuple>>>
   void operator+=(Relation<Tuple, Compare>& relation, P&& producer)
   {
-    std::forward<P>(producer).template execute<ExecutionMode::Delta>(
-      [&](Tuple entry) { relation.insert(entry); });
-  }
-
-  template<typename R1, typename... Ts1, typename ...S>
-  auto operator+=(const Selector<R1, Ts1...>& selector, const Join<S...>& join)
-  {
-    join.template execute<ExecutionMode::Delta>(
-      [&](auto env) { selector.insert(env); });
+    if (relation.state() == Strata::State::Initialization)
+      std::forward<P>(producer).template execute<ExecutionMode::Stable>(
+        [&](Tuple entry) { relation.insert(entry); });
+    else
+      std::forward<P>(producer).template execute<ExecutionMode::Delta>(
+        [&](Tuple entry) { relation.insert(entry); });
   }
 
   template<typename R1, typename R2, typename... Ts1, typename... Ts2>
@@ -165,4 +165,3 @@ namespace mlir::verona
     return left.join(right);
   }
 }
-
