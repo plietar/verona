@@ -70,4 +70,7 @@ def ViewpointType : Verona_TypeDef<"Viewpoint"> {
   let genVerifyInvariantsDecl = 1;
 }
 
+def MetaType : Verona_TypeDef<"Meta"> { }
+def ValueType : Verona_TypeDef<"Value"> { }
+
 #endif

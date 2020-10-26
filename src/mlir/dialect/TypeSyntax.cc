@@ -91,7 +91,9 @@ namespace mlir::verona::detail
         .Case<ViewpointType>([&](ViewpointType type) {
           os << "viewpoint<" << type.getLeftType() << ", "
              << type.getRightType() << ">";
-        });
+        })
+        .Case<MetaType>([&](MetaType type) { os << "type"; })
+        .Case<ValueType>([&](ValueType type) { os << "value"; });
     }
 
   private:
@@ -251,6 +253,10 @@ namespace mlir::verona::detail
         return CapabilityType::get(context, Capability::Immutable);
       else if (keyword == "unknown")
         return UnknownType::get(context);
+      else if (keyword == "type")
+        return MetaType::get(context);
+      else if (keyword == "value")
+        return ValueType::get(context);
 
       parser.emitError(parser.getNameLoc(), "unknown verona type: ") << keyword;
       return Type();

@@ -10,6 +10,8 @@ include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
+include "VeronaTypes.td"
+
 def Verona_CopyOp : Verona_Op<"copy", [ Typecheckable ]> {
     let summary = "Copy a reference";
     let description = [{
@@ -101,6 +103,7 @@ def Verona_FieldWriteOp : Verona_Op<"field_write", [ Typecheckable ]> {
     }];
 }
 
+/*
 def Verona_CallOp : Verona_Op<"call"> {
     let summary = "Dynamic call to a class method";
     let description = [{
@@ -127,6 +130,7 @@ def Verona_CallOp : Verona_Op<"call"> {
     }];
     let verifier = [{ return success(); }];
 }
+*/
 
 def Verona_StaticOp : Verona_Op<"static"> {
     let summary = "Acquires a static descriptor of a type";
@@ -251,6 +255,87 @@ def Verona_AllocateObjectOp : Verona_Op<"new_object"> {
       attr-dict
       `:` type($output)
     }];
+}
+
+def Verona_MethodOp : Verona_Op<"method"> {
+  let arguments = (ins StrAttr : $name);
+
+  let regions = (region
+    SizedRegion<1>:$signature,
+    AnyRegion:$body);
+}
+
+def Verona_SignatureOp : Verona_Op<"signature"> {
+  let arguments = (ins Variadic<IsMetaType>:$args, IsMetaType:$ret);
+  let results = (outs IsMetaType : $output);
+  let assemblyFormat = "` ` `(` $args `)` `->` $ret attr-dict";
+  let verifier = ?;
+}
+
+def Verona_ClassTypeOp : Verona_Op<"class_type"> {
+  let arguments = (ins SymbolRefAttr:$name, Variadic<IsMetaType>:$args);
+  let results = (outs IsMetaType : $output);
+  let assemblyFormat = "$name (`[` $args^ `]`)? attr-dict";
+  let verifier = ?;
+}
+
+def Verona_UnitTypeOp : Verona_Op<"unit_type"> {
+  let arguments = (ins);
+  let results = (outs IsMetaType : $output);
+  let assemblyFormat = "attr-dict";
+  let verifier = ?;
+}
+
+def Verona_YieldOp : Verona_Op<"yield", [ReturnLike, Terminator]> {
+  let arguments = (ins IsMetaType:$value);
+  let assemblyFormat = "$value attr-dict";
+  let verifier = ?;
+}
+
+def Verona_ReturnOp : Verona_Op<"return", [ReturnLike, Terminator]> {
+  let arguments = (ins IsValueType:$value);
+  let assemblyFormat = "$value attr-dict";
+  let verifier = ?;
+}
+
+def Verona_AbortOp : Verona_Op<"abort", [Terminator]> {
+  let assemblyFormat = "attr-dict";
+  let verifier = ?;
+}
+
+class Verona_GenericCallOp<string mnemonic, Type receiverType> : Verona_Op<mnemonic> {
+    let arguments = (ins
+      receiverType : $receiver,
+      StrAttr : $name,
+      Variadic<IsValueType> : $args
+    );
+    let results = (outs IsValueType : $res);
+
+    let assemblyFormat = [{
+      $receiver $name `(` $args `)` attr-dict
+    }];
+    let verifier = [{ return success(); }];
+}
+
+def Verona_CallOp : Verona_GenericCallOp<"call", IsValueType>;
+def Verona_StaticCallOp : Verona_GenericCallOp<"static_call", IsMetaType>;
+
+def Verona_TypeCheckOp : Verona_Op<"typecheck"> {
+  let arguments = (ins IsValueType:$value, IsMetaType:$type);
+  let assemblyFormat = "$value `:` $type attr-dict";
+  let verifier = ?;
+}
+
+def Verona_ClassOp : Verona_Op<"class", [SingleBlockImplicitTerminator<"ClassEndOp">]> {
+  let arguments = (ins StrAttr : $name);
+  let regions = (region SizedRegion<1>:$body);
+  let verifier = ?;
+}
+
+def Verona_ClassEndOp : Verona_Op<"_class_end", [Terminator, HasParent<"ClassOp">]> {
+  let parser = ?;
+  let printer = ?;
+  let verifier = ?;
 }
 
 #endif // VERONA_OPS
