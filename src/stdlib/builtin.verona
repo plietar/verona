@@ -109,3 +109,10 @@ primitive U64 {
   builtin and(self: imm, other: U64 & imm): U64 & imm;
   builtin or(self: imm, other: U64 & imm): U64 & imm;
 }
+
+class IO {
+  builtin _read_u64(none: None & imm) : (U64 & imm) | (None & imm);
+  read_u64() : (U64 & imm) | (None & imm) {
+    IO._read_u64(None.create())
+  }
+}

@@ -225,7 +225,9 @@ namespace verona::bytecode
     Unreachable,
     When, // codepointer(u32), cown count(u8), capture count(u8)
 
-    maximum_value = When,
+    ReadU64,
+
+    maximum_value = ReadU64,
   };
 
   enum class BinaryOperator : uint8_t
@@ -456,6 +458,13 @@ namespace verona::bytecode
   {
     using Operands = OpcodeOperands<>;
     constexpr static std::string_view format = "UNREACHABLE";
+  };
+
+  template<>
+  struct OpcodeSpec<Opcode::ReadU64>
+  {
+    using Operands = OpcodeOperands<Register, Register>;
+    constexpr static std::string_view format = "READ_U64 {}, {}";
   };
 
   std::ostream& operator<<(std::ostream& out, const Register& self);

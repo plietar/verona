@@ -29,5 +29,7 @@ namespace verona::compiler
     void builtin_cown_create();
     void builtin_cown_create_sleeping();
     void builtin_cown_fulfill_sleeping();
+
+    void builtin_io_read_u64();
   };
 }

@@ -206,9 +206,10 @@ namespace verona::compiler
           Variable input = backward_renamings.at(j).apply(variable);
 
           TypePtr incoming_type = get_exit_type(predecessor, input);
-          TypePtr renamed_type = context_.mk_variable_renaming(
-            forward_renamings.at(j), incoming_type);
-          types.insert(renamed_type);
+          // TypePtr renamed_type = context_.mk_variable_renaming(
+          //   forward_renamings.at(j), incoming_type);
+          // types.insert(renamed_type);
+          types.insert(incoming_type);
         }
 
         set_type(assignment, variable, context_.mk_union(types));
@@ -262,19 +263,21 @@ namespace verona::compiler
 
       TypeAssignment& types = exit_types_[bb];
       auto assign_type = [&](Variable v) {
-        TypePtr compressed_type =
-          context_.mk_path_compression(compression, assignment.at(v));
+        // TypePtr compressed_type =
+        //   context_.mk_path_compression(compression, assignment.at(v));
+        TypePtr type = assignment.at(v);
 
         // If the basic block's exit types haven't been used yet we can just
         // set them to the types from the assignment.
-        auto [it, inserted] = types.insert({v, compressed_type});
+        // auto [it, inserted] = types.insert({v, compressed_type});
+        auto [it, inserted] = types.insert({v, type});
 
         // If the exit type has already been used (i.e. this is a loop body),
         // they would have been set to an inference variables. We can't redefine
         // the type so we add a constraint between this inference variables and
         // the type we got out of traversing the BB.
         if (!inserted)
-          add_constraint(compressed_type, it->second, "finish_basic_block");
+          add_constraint(type, it->second, "finish_basic_block");
       };
 
       const Liveness& liveness_out = liveness_.state_out(bb);

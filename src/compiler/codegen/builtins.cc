@@ -74,6 +74,12 @@ namespace verona::compiler
       else if (method == "_fulfill_sleeping")
         return builtin_cown_fulfill_sleeping();
     }
+    else if (entity == "IO")
+    {
+      if (method == "_read_u64")
+        return builtin_io_read_u64();
+    }
+
     fmt::print(stderr, "Invalid builtin {}.{}\n", entity, method);
     abort();
   }
@@ -186,6 +192,19 @@ namespace verona::compiler
     gen_.reg(Register(1));
     gen_.opcode(Opcode::ClearList);
     gen_.reglist({Register(0), Register(1)});
+    gen_.opcode(Opcode::Return);
+  }
+
+  void BuiltinGenerator::builtin_io_read_u64()
+  {
+    assert(abi_.arguments == 2);
+    assert(abi_.returns == 1);
+
+    gen_.opcode(Opcode::ReadU64);
+    gen_.reg(Register(0));
+    gen_.reg(Register(1));
+    gen_.opcode(Opcode::Clear);
+    gen_.reg(Register(1));
     gen_.opcode(Opcode::Return);
   }
 }

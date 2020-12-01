@@ -90,6 +90,8 @@ namespace verona::interpreter
     opcode_when(CodePtr selector, uint8_t cown_count, uint8_t capture_count);
     void opcode_unreachable();
 
+    Value opcode_read_u64(Value none);
+
     enum class OnReturn
     {
       Halt,
@@ -143,6 +145,7 @@ namespace verona::interpreter
     void write(Register reg, Value value);
 
     const VMDescriptor* find_dispatch_descriptor(Register receiver) const;
+    const VMDescriptor* find_match_descriptor(const Value& value) const;
 
     template<typename... Args>
     void trace(std::string_view fmt, Args&&... args) const

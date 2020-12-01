@@ -138,11 +138,10 @@ namespace verona::compiler
         results_->ok = false;
       }
 
-      analysis.region_graphs =
-        make_region_graphs(context_, *method, *analysis.typecheck);
-
-      CheckRegions(context_, *analysis.typecheck, *analysis.region_graphs)
-        .process(*analysis.ir);
+      // analysis.region_graphs =
+      //   make_region_graphs(context_, *method, *analysis.typecheck);
+      // CheckRegions(context_, *analysis.typecheck, *analysis.region_graphs)
+      //   .process(*analysis.ir);
     }
 
     Context& context_;

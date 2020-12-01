@@ -179,6 +179,31 @@ namespace verona::interpreter
     }
   }
 
+  const VMDescriptor* VM::find_match_descriptor(const Value& value) const
+  {
+    switch (value.tag)
+    {
+      case Value::MUT:
+      case Value::IMM:
+      case Value::ISO:
+        return value->object->descriptor();
+
+      case Value::COWN:
+        return value->cown->descriptor;
+
+      case Value::U64:
+        return code_.special_descriptors().u64;
+
+      case Value::STRING:
+      case Value::DESCRIPTOR:
+      case Value::UNINIT:
+        return nullptr;
+
+      default:
+        fatal("Invalid match operand: {}", value);
+    }
+  }
+
   void VM::check_type(const Value& value, Value::Tag expected)
   {
     if (value.tag != expected)
@@ -347,29 +372,9 @@ namespace verona::interpreter
 
   Value VM::opcode_match(const Value& src, const VMDescriptor* descriptor)
   {
-    uint64_t result;
-    switch (src.tag)
-    {
-      case Value::UNINIT:
-      case Value::U64:
-      case Value::STRING:
-      case Value::DESCRIPTOR:
-      case Value::COWN:
-        result = false;
-        break;
-
-      case Value::ISO:
-      case Value::IMM:
-      case Value::MUT:
-        result = (src->object->descriptor() == descriptor);
-        break;
-      case Value::COWN_UNOWNED:
-        // This type should only appear in message.
-        abort();
-    }
+    uint64_t result = (descriptor == find_match_descriptor(src));
 
     trace(" Matching {} against {} = {}", src, descriptor->name, result);
-
     return Value::u64(result);
   }
 
@@ -611,6 +616,26 @@ namespace verona::interpreter
     fatal("Reached unreachable opcode");
   }
 
+  Value VM::opcode_read_u64(Value none)
+  {
+    std::string input;
+    do
+    {
+      std::getline(std::cin, input);
+    } while(input.empty() && std::cin);
+
+    if (input.empty())
+    {
+      return none;
+    }
+    else
+    {
+      none.clear(alloc_);
+      uint64_t value = std::stoi(input);
+      return Value::u64(value);
+    }
+  }
+
   void VM::dispatch_opcode(Opcode op)
   {
     switch (op)
@@ -648,6 +673,8 @@ namespace verona::interpreter
       OP(When, opcode_when);
       OP(Unprotect, opcode_unprotect);
       OP(Unreachable, opcode_unreachable);
+
+      OP(ReadU64, opcode_read_u64);
 
 #undef OP
 
