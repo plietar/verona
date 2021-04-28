@@ -190,17 +190,43 @@ namespace verona::interpreter
       }
     }
 
+    /**
+     * Compute the size of both the method and field vtables, by taking the
+     * largest selector used plus one.
+     *
+     * `ip` must point to the start of the method list. Note that unlike other
+     * methods of the `Code` class, this one takes ip by value, not reference.
+     */
+    std::pair<uint32_t, uint32_t>
+    vtable_sizes(size_t ip, uint32_t methods, uint32_t fields)
+    {
+      uint32_t method_vtable = 0;
+      uint32_t field_vtable = 0;
+      for (uint32_t i = 0; i < methods; i++)
+      {
+        SelectorIdx index = load<SelectorIdx>(ip);
+        u32(ip); // skip the method's offset
+        method_vtable = std::max((uint32_t)(index.value + 1), method_vtable);
+      }
+      for (uint32_t i = 0; i < fields; i++)
+      {
+        SelectorIdx index = load<SelectorIdx>(ip);
+        field_vtable = std::max((uint32_t)(index.value + 1), field_vtable);
+      }
+      return {method_vtable, field_vtable};
+    }
+
     std::unique_ptr<VMDescriptor>
     load_descriptor(DescriptorIdx index, size_t& ip)
     {
       std::string_view name = str(ip);
-      uint32_t method_slots = u32(ip);
       uint32_t method_count = u32(ip);
-      uint32_t field_slots = u32(ip);
       uint32_t field_count = u32(ip);
       uint32_t subtype_count = u32(ip);
       uint32_t finaliser_ip = u32(ip);
 
+      auto [method_slots, field_slots] =
+        vtable_sizes(ip, method_count, field_count);
       auto descriptor = std::make_unique<VMDescriptor>(
         index, name, method_slots, field_slots, field_count, finaliser_ip);
 
