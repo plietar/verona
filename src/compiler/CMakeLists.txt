@@ -29,10 +29,6 @@ add_library(veronac-lib
   codegen/codegen.cc
   codegen/descriptor.cc
   codegen/function.cc
-  codegen/generator.cc
-  codegen/item.cc
-  codegen/reachability.cc
-  codegen/selector.cc
   context.cc
   dataflow/liveness.cc
   elaboration.cc
@@ -49,6 +45,9 @@ add_library(veronac-lib
   parser.cc
   polarize.cc
   printing.cc
+  reachability/item.cc
+  reachability/reachability.cc
+  reachability/selector.cc
   regionck/region_graph.cc
   resolution.cc
   type.cc
