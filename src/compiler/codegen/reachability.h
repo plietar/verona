@@ -3,7 +3,6 @@
 #pragma once
 
 #include "compiler/ast.h"
-#include "compiler/codegen/generator.h"
 #include "compiler/codegen/selector.h"
 #include "compiler/instantiation.h"
 
@@ -51,24 +50,10 @@ namespace verona::compiler
     }
   };
 
-  struct MethodReachability
-  {
-    MethodReachability(std::optional<Label> label) : label(label) {}
-
-    // For methods without a body, this is nullopt.
-    std::optional<Label> label;
-  };
-
   struct EntityReachability
   {
-    EntityReachability(Descriptor descriptor)
-    : descriptor(descriptor), finaliser(std::nullopt)
-    {}
-
-    Descriptor descriptor;
-    std::map<CodegenItem<Method>, MethodReachability> methods;
-
-    MethodReachability finaliser;
+    std::vector<CodegenItem<Method>> methods;
+    std::optional<CodegenItem<Method>> finaliser;
 
     // Set of reified entities which are subtypes of this one. It will only be
     // non-empty for interfaces.
@@ -102,18 +87,12 @@ namespace verona::compiler
     const EntityReachability&
     find_entity(const CodegenItem<Entity>& entity) const;
 
-    /**
-     * Find the information related to this entity or an equivalent one,
-     * returns nullptr if the item is not reachable.
-     */
-    const EntityReachability*
-    try_find_entity(const CodegenItem<Entity>& entity) const;
+    bool is_reachable(const CodegenItem<Entity>& entity) const;
   };
 
   Reachability compute_reachability(
     Context& context,
     const Program& program,
-    Generator& gen,
     CodegenItem<Entity> main_class,
     CodegenItem<Method> main_method,
     const AnalysisResults& analysis);

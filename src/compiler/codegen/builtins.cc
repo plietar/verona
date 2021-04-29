@@ -11,9 +11,8 @@ namespace verona::compiler
   struct BuiltinGenerator : public BaseFunctionGenerator
   {
     BuiltinGenerator(Generator& gen, std::string_view name, FunctionABI abi)
-      : BaseFunctionGenerator(gen, name, abi), abi(abi)
-    {
-    }
+    : BaseFunctionGenerator(gen, name, abi), abi(abi)
+    {}
 
     /**
      * Generate a builtin's body, based on its entity and method name.
@@ -162,12 +161,18 @@ namespace verona::compiler
       emit<Opcode::Return>();
     }
 
-    private:
+  private:
     FunctionABI abi;
   };
 
-  void generate_builtin(Generator& writer, const CodegenItem<Method>& method)
+  void generate_builtin(
+    Generator& writer,
+    ProgramTable& program_table,
+    const CodegenItem<Method>& method)
   {
+    Label label = program_table.find(writer, method);
+    writer.define_label(label);
+
     FunctionABI abi(*method.definition->signature);
     BuiltinGenerator gen(writer, method.instantiated_path(), abi);
     gen.generate_body(method.definition->parent->name, method.definition->name);

@@ -39,74 +39,28 @@ namespace verona::compiler
     return truncate<uint8_t>(next_register_ + children_call_space_);
   }
 
-  void emit_function(
-    Context& context,
-    const Reachability& reachability,
-    const SelectorTable& selectors,
-    Generator& gen,
-    const CodegenItem<Method>& method,
-    const FnAnalysis& analysis)
-  {
-    FunctionABI abi(*method.definition->signature);
-
-    std::vector<Label> closure_labels;
-    MethodIR& mir = *analysis.ir;
-    for (size_t i = 0; i < mir.function_irs.size(); i++)
-      closure_labels.push_back(gen.create_label());
-
-    for (size_t i = 0; i < mir.function_irs.size(); i++)
-    {
-      FunctionIR& ir = *mir.function_irs[i];
-      if (i != 0)
-        abi = FunctionABI::create_closure_abi(ir.parameters.size());
-
-      std::string name = method.instantiated_path();
-      if (i != 0)
-        name += ".$c." + std::to_string(i);
-
-      IRGenerator v(
-        context,
-        reachability,
-        selectors,
-        gen,
-        abi,
-        method,
-        *analysis.typecheck,
-        *analysis.liveness,
-        closure_labels,
-        name);
-
-      gen.define_label(closure_labels[i]);
-      v.generate_body(ir);
-      v.finish();
-    }
-  }
-
   void emit_functions(
     Context& context,
     const AnalysisResults& analysis,
     const Reachability& reachability,
+    ProgramTable& program_table,
     const SelectorTable& selectors,
     Generator& gen)
   {
     for (const auto& [entity, entity_info] : reachability.entities)
     {
-      for (const auto& [method, method_info] : entity_info.methods)
+      for (const auto& method : entity_info.methods)
       {
-        if (!method_info.label.has_value())
-          continue;
-
-        gen.define_label(method_info.label.value());
         if (method.definition->kind() == Method::Builtin)
         {
-          generate_builtin(gen, method);
+          generate_builtin(gen, program_table, method);
         }
         else
         {
           const FnAnalysis& fn_analysis =
             analysis.functions.at(method.definition);
-          emit_function(
-            context, reachability, selectors, gen, method, fn_analysis);
+          generate_ir_function(
+            context, program_table, selectors, gen, method, fn_analysis);
         }
       }
     }

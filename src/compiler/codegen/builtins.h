@@ -9,5 +9,8 @@ namespace verona::compiler
   /**
    * Generate code for a builtin function.
    */
-  void generate_builtin(Generator& writer, const CodegenItem<Method>& method);
+  void generate_builtin(
+    Generator& writer,
+    ProgramTable& program_table,
+    const CodegenItem<Method>& method);
 }

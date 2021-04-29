@@ -10,24 +10,11 @@ namespace verona::compiler
 {
   using bytecode::Register;
 
-  /**
-   * Generate code for a function.
-   *
-   * This chooses between BuiltinGenerator and IRGenerator to generate the
-   * method, depending on its kind.
-   */
-  void emit_function(
-    Context& context,
-    const Reachability& reachability,
-    const SelectorTable& selectors,
-    Generator& gen,
-    const CodegenItem<Method>& method,
-    const FnAnalysis& analysis);
-
   void emit_functions(
     Context& context,
     const AnalysisResults& analysis,
     const Reachability& reachability,
+    ProgramTable& program_table,
     const SelectorTable& selectors,
     Generator& gen);
 
@@ -121,13 +108,14 @@ namespace verona::compiler
    */
   class BaseFunctionGenerator
   {
-    public:
+  public:
     /**
      * Initialize a function generator. Calling this constructor will
      * immediately write the function header to the bytecode.
      */
-    BaseFunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi) :
-      gen_(gen),
+    BaseFunctionGenerator(
+      Generator& gen, std::string_view name, FunctionABI abi)
+    : gen_(gen),
       allocator_(abi),
       function_end_(gen.create_label()),
       frame_size_(gen.create_relocatable())
@@ -194,7 +182,8 @@ namespace verona::compiler
      */
     CalleeRegister callee_register(const FunctionABI& callee_abi, uint8_t index)
     {
-      return CalleeRegister(callee_abi.callspace(), frame_size_, Register(index));
+      return CalleeRegister(
+        callee_abi.callspace(), frame_size_, Register(index));
     }
 
     Label create_label()
@@ -205,6 +194,11 @@ namespace verona::compiler
     void define_label(Label label)
     {
       gen_.define_label(label);
+    }
+
+    Generator& writer()
+    {
+      return gen_;
     }
 
   private:
@@ -238,9 +232,10 @@ namespace verona::compiler
     template<typename, typename, typename...> typename M = std::unordered_map>
   class FunctionGenerator : public BaseFunctionGenerator
   {
-    public:
-    FunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi) :
-      BaseFunctionGenerator(gen, name, abi) {}
+  public:
+    FunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi)
+    : BaseFunctionGenerator(gen, name, abi)
+    {}
 
     /**
      * Bind the function's parameter registers to the given SSA variables.
@@ -263,7 +258,8 @@ namespace verona::compiler
       uint32_t index = 0;
       for (std::optional<V> param : parameters)
       {
-        if (param) {
+        if (param)
+        {
           variables_.insert({*param, Register(index)});
         }
         index += 1;

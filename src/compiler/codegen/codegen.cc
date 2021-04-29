@@ -110,11 +110,14 @@ namespace verona::compiler
     write_magic_number(gen);
 
     Reachability reachability = compute_reachability(
-      context, program, gen, entry->first, entry->second, analysis);
+      context, program, entry->first, entry->second, analysis);
     SelectorTable selectors = SelectorTable::build(reachability);
+    ProgramTable program_table;
 
-    emit_program_header(program, reachability, selectors, gen, entry->first);
-    emit_functions(context, analysis, reachability, selectors, gen);
+    emit_program_header(
+      program, reachability, program_table, selectors, gen, entry->first);
+    emit_functions(
+      context, analysis, reachability, program_table, selectors, gen);
 
     gen.finish();
 

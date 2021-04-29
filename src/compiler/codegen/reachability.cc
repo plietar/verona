@@ -23,13 +23,9 @@ namespace verona::compiler
   : private RecursiveTypeVisitor<const Instantiation&>
   {
     ReachabilityVisitor(
-      Context& context,
-      const Program& program,
-      Generator& gen,
-      const AnalysisResults& analysis)
+      Context& context, const Program& program, const AnalysisResults& analysis)
     : context_(context),
       program_(program),
-      gen_(gen),
       analysis_(analysis),
       solver_out_(context_.dump("reachability-solver"))
     {}
@@ -154,7 +150,7 @@ namespace verona::compiler
 
         // Any already reachable method in super is now reachable in sub,
         // and needs to be added to the queue.
-        for (const auto& [method, _] : super_info.methods)
+        for (const auto& method : super_info.methods)
         {
           push_method_to_subtype(sub, method);
         }
@@ -557,7 +553,7 @@ namespace verona::compiler
 
     EntityReachability& add_entity(const CodegenItem<Entity>& entity)
     {
-      EntityReachability reachability(gen_.create_descriptor());
+      EntityReachability reachability;
       auto [it, inserted] = result_.entities.insert({entity, reachability});
       if (!inserted)
         throw std::logic_error("Entity added multiple times");
@@ -565,30 +561,17 @@ namespace verona::compiler
       return it->second;
     }
 
-    MethodReachability&
+    void
     add_method(EntityReachability& parent, const CodegenItem<Method>& method)
     {
-      std::optional<Label> label;
-      if (
-        method.definition->body != nullptr ||
-        method.definition->kind() == Method::Builtin)
-      {
-        label = gen_.create_label();
-        if (method.definition->is_finaliser())
-          parent.finaliser.label = label;
-      }
+      if (method.definition->is_finaliser())
+        parent.finaliser = method;
 
-      MethodReachability reachability(label);
-      auto [it, inserted] = parent.methods.insert({method, reachability});
-      if (!inserted)
-        throw std::logic_error("Entity added multiple times");
-
-      return it->second;
+      parent.methods.push_back(method);
     }
 
     Context& context_;
     const Program& program_;
-    Generator& gen_;
     const AnalysisResults& analysis_;
     Reachability result_;
 
@@ -619,14 +602,10 @@ namespace verona::compiler
     return entities.at(normalize_equivalence(entity));
   }
 
-  const EntityReachability*
-  Reachability::try_find_entity(const CodegenItem<Entity>& entity) const
+  bool Reachability::is_reachable(const CodegenItem<Entity>& entity) const
   {
     auto it = entities.find(normalize_equivalence(entity));
-    if (it != entities.end())
-      return &it->second;
-    else
-      return nullptr;
+    return it != entities.end();
   }
 
   void dump_reachability(Context& context, const Reachability& reachability)
@@ -635,7 +614,7 @@ namespace verona::compiler
     for (const auto& [entity, info] : reachability.entities)
     {
       fmt::print(*output, "{} {}\n", entity.definition->kind->value(), entity);
-      for (const auto& [method, _] : info.methods)
+      for (const auto& method : info.methods)
       {
         fmt::print(*output, "  method {}\n", method);
       }
@@ -663,12 +642,11 @@ namespace verona::compiler
   Reachability compute_reachability(
     Context& context,
     const Program& program,
-    Generator& gen,
     CodegenItem<Entity> main_class,
     CodegenItem<Method> main_method,
     const AnalysisResults& analysis)
   {
-    ReachabilityVisitor v(context, program, gen, analysis);
+    ReachabilityVisitor v(context, program, analysis);
     v.process(main_class, main_method);
 
     dump_reachability(context, v.result_);

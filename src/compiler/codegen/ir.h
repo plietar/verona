@@ -22,23 +22,21 @@ namespace verona::compiler
   public:
     IRGenerator(
       Context& context,
-      const Reachability& reachability,
+      ProgramTable& program_table,
       const SelectorTable& selectors,
       Generator& gen,
       FunctionABI abi,
       const CodegenItem<Method>& method,
       const TypecheckResults& typecheck,
       const LivenessAnalysis& liveness,
-      const std::vector<Label>& closure_labels,
       std::string_view name)
     : FunctionGenerator(gen, name, abi),
       context_(context),
-      reachability_(reachability),
+      program_table_(program_table),
       selectors_(selectors),
       method_(method),
       typecheck_(typecheck),
-      liveness_(liveness),
-      closure_labels_(closure_labels)
+      liveness_(liveness)
     {}
 
     void generate_body(const FunctionIR& ir)
@@ -74,7 +72,8 @@ namespace verona::compiler
       // The receiver is a nullopt if the method is a static one.
       // We still need to consume a VM register, so include it in the list.
       parameters.push_back(ir.receiver);
-      parameters.insert(parameters.end(), ir.parameters.begin(), ir.parameters.end());
+      parameters.insert(
+        parameters.end(), ir.parameters.begin(), ir.parameters.end());
 
       bind_parameters(parameters);
     }
@@ -99,7 +98,7 @@ namespace verona::compiler
     Descriptor entity_descriptor(const Entity* definition, TypeList arguments)
     {
       CodegenItem<Entity> item(definition, Instantiation(arguments));
-      return reachability_.find_entity(item).descriptor;
+      return program_table_.find(writer(), item);
     }
 
     SelectorIdx method_selector(const std::string& name, TypeList arguments)
@@ -203,8 +202,10 @@ namespace verona::compiler
       }
 
       // Gen when opcode with closure
+      Label closure_label =
+        program_table_.find(writer(), method_, stmt.closure_index);
       emit<Opcode::When>(
-        closure_labels_[stmt.closure_index],
+        closure_label,
         truncate<uint8_t>(stmt.cowns.size()),
         truncate<uint8_t>(stmt.captures.size()));
 
@@ -494,13 +495,52 @@ namespace verona::compiler
     };
 
     Context& context_;
-    const Reachability& reachability_;
+    ProgramTable& program_table_;
     const SelectorTable& selectors_;
     const CodegenItem<Method>& method_;
     const TypecheckResults& typecheck_;
     const LivenessAnalysis& liveness_;
-    const std::vector<Label>& closure_labels_;
 
     FunctionABI abi_ = FunctionABI(*method_.definition->signature);
   };
+
+  void generate_ir_function(
+    Context& context,
+    ProgramTable& program_table,
+    const SelectorTable& selectors,
+    Generator& gen,
+    const CodegenItem<Method>& method,
+    const FnAnalysis& analysis)
+  {
+    FunctionABI abi(*method.definition->signature);
+
+    MethodIR& mir = *analysis.ir;
+    for (size_t i = 0; i < mir.function_irs.size(); i++)
+    {
+      FunctionIR& ir = *mir.function_irs[i];
+      if (i != 0)
+        abi = FunctionABI::create_closure_abi(ir.parameters.size());
+
+      std::string name = method.instantiated_path();
+      if (i != 0)
+        name += ".$c." + std::to_string(i);
+
+      Label label = program_table.find(gen, method, i);
+      gen.define_label(label);
+
+      IRGenerator v(
+        context,
+        program_table,
+        selectors,
+        gen,
+        abi,
+        method,
+        *analysis.typecheck,
+        *analysis.liveness,
+        name);
+
+      v.generate_body(ir);
+      v.finish();
+    }
+  }
 }

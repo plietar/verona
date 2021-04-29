@@ -14,10 +14,12 @@ namespace verona::compiler
     EmitProgramHeader(
       const Program& program,
       const Reachability& reachability,
+      ProgramTable& program_table,
       const SelectorTable& selectors,
       Generator& gen)
     : program(program),
       reachability(reachability),
+      program_table(program_table),
       selectors(selectors),
       gen(gen)
     {}
@@ -30,7 +32,8 @@ namespace verona::compiler
       size_t index = 0;
       for (const auto& [entity, info] : reachability.entities)
       {
-        gen.define_relocatable(info.descriptor, index++);
+        Descriptor descriptor = program_table.find(gen, entity);
+        gen.define_relocatable(descriptor, index++);
         emit_descriptor(entity, info);
       }
     }
@@ -64,10 +67,15 @@ namespace verona::compiler
       gen.u32(truncate<uint32_t>(info.subtypes.size()));
 
       // Output label for finaliser for this class, if it has one.
-      if (info.finaliser.label.has_value())
-        gen.u32(info.finaliser.label.value());
+      if (info.finaliser.has_value())
+      {
+        Label label = program_table.find(gen, *info.finaliser);
+        gen.u32(label);
+      }
       else
-        gen.u32(0);
+      {
+         gen.u32(0);
+      }
 
       emit_methods(info);
       uint32_t field_count = emit_fields(entity);
@@ -115,7 +123,7 @@ namespace verona::compiler
     /// the field VTable.
     void emit_methods(const EntityReachability& info)
     {
-      for (const auto& [method, info] : info.methods)
+      for (const auto& method : info.methods)
       {
         TypeList arguments;
         for (const auto& param : method.definition->signature->generics->types)
@@ -123,11 +131,12 @@ namespace verona::compiler
           arguments.push_back(method.instantiation.types().at(param->index));
         }
 
+        Label label = program_table.find(gen, method);
         Selector selector =
           Selector::method(method.definition->name, arguments);
         SelectorIdx index = selectors.get(selector);
         gen.selector(index);
-        gen.u32(info.label.value());
+        gen.u32(label);
       }
     }
 
@@ -137,7 +146,8 @@ namespace verona::compiler
       for (const auto& subtype : info.subtypes)
       {
         const auto& subtype_info = reachability.entities.at(subtype);
-        gen.u32(subtype_info.descriptor);
+        Descriptor descriptor = program_table.find(gen, subtype);
+        gen.u32(descriptor);
       }
     }
 
@@ -147,19 +157,22 @@ namespace verona::compiler
       if (const Entity* entity = program.find_entity(name))
       {
         CodegenItem item(entity, Instantiation::empty());
-        entity_info = reachability.try_find_entity(item);
+        if (reachability.is_reachable(item))
+        {
+          Descriptor descriptor = program_table.find(gen, item);
+          gen.u32(descriptor);
+          return;
+        }
       }
 
-      if (entity_info)
-        gen.u32(entity_info->descriptor);
-      else
-        gen.u32(bytecode::DescriptorIdx::invalid().value);
+      gen.u32(bytecode::DescriptorIdx::invalid().value);
     }
 
     void emit_special_descriptors(const CodegenItem<Entity>& main_class)
     {
       // Index of the main descriptor
-      gen.u32(reachability.find_entity(main_class).descriptor);
+      gen.u32(program_table.find(gen, main_class));
+
       // Index of the main selector
       gen.selector(selectors.get(Selector::method("main", TypeList())));
 
@@ -170,6 +183,7 @@ namespace verona::compiler
   private:
     const Program& program;
     const Reachability& reachability;
+    ProgramTable& program_table;
     const SelectorTable& selectors;
     Generator& gen;
   };
@@ -177,11 +191,13 @@ namespace verona::compiler
   void emit_program_header(
     const Program& program,
     const Reachability& reachability,
+    ProgramTable& program_table,
     const SelectorTable& selectors,
     Generator& gen,
     const CodegenItem<Entity>& main)
   {
-    EmitProgramHeader emit(program, reachability, selectors, gen);
+    EmitProgramHeader emit(
+      program, reachability, program_table, selectors, gen);
     emit.emit_descriptor_table();
     emit.emit_special_descriptors(main);
   }
