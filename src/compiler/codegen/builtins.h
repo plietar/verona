@@ -11,7 +11,7 @@ namespace verona::compiler
    * Generate code for a builtin function.
    */
   void generate_builtin(
-    BytecodeWriter& writer,
+    bytecode::BytecodeWriter& writer,
     ProgramTable& program_table,
     const CodegenItem<Method>& method);
 }

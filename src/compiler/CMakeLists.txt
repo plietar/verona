@@ -28,7 +28,7 @@ add_library(veronac-lib
   codegen/builtins.cc
   codegen/codegen.cc
   codegen/descriptor.cc
-  codegen/function.cc
+  codegen/ir.cc
   context.cc
   dataflow/liveness.cc
   elaboration.cc

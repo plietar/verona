@@ -9,10 +9,6 @@
 
 namespace verona::compiler
 {
-  using bytecode::BytecodeWriter;
-  using bytecode::Descriptor;
-  using bytecode::Label;
-
   /**
    * The program table maintains a mapping from items being codegen'ed to their
    * location in the bytecode. Since that location may not be known ahead of
@@ -23,9 +19,11 @@ namespace verona::compiler
    */
   struct ProgramTable
   {
-    Descriptor find(BytecodeWriter& writer, const CodegenItem<Entity>& entity)
+    bytecode::Descriptor
+    find(bytecode::BytecodeWriter& writer, const CodegenItem<Entity>& entity)
     {
-      auto [it, inserted] = descriptors.insert({entity, Descriptor()});
+      auto [it, inserted] =
+        descriptors.insert({entity, bytecode::Descriptor()});
       if (inserted)
       {
         it->second = writer.create_descriptor();
@@ -33,12 +31,13 @@ namespace verona::compiler
       return it->second;
     }
 
-    Label find(
-      BytecodeWriter& writer,
+    bytecode::Label find(
+      bytecode::BytecodeWriter& writer,
       const CodegenItem<Method>& entity,
       size_t index = 0)
     {
-      auto [it, inserted] = methods.insert({{entity, index}, Label()});
+      auto [it, inserted] =
+        methods.insert({{entity, index}, bytecode::Label()});
       if (inserted)
       {
         it->second = writer.create_label();
@@ -47,8 +46,8 @@ namespace verona::compiler
     }
 
   private:
-    std::map<CodegenItem<Entity>, Descriptor> descriptors;
-    std::map<std::pair<CodegenItem<Method>, size_t>, Label> methods;
+    std::map<CodegenItem<Entity>, bytecode::Descriptor> descriptors;
+    std::map<std::pair<CodegenItem<Method>, size_t>, bytecode::Label> methods;
   };
 
   void emit_program_header(
@@ -56,6 +55,6 @@ namespace verona::compiler
     const Reachability& reachability,
     ProgramTable& program_table,
     const SelectorTable& selectors,
-    BytecodeWriter& writer,
+    bytecode::BytecodeWriter& writer,
     const CodegenItem<Method>& main);
 };

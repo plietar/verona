@@ -6,6 +6,9 @@
 
 namespace verona::compiler
 {
+  using bytecode::BytecodeWriter;
+  using bytecode::Descriptor;
+  using bytecode::Label;
   using bytecode::SelectorIdx;
 
   class EmitProgramHeader

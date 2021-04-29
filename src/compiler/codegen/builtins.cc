@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: MIT
 #include "compiler/codegen/builtins.h"
 
-#include "bytecode/bytecode.h"
-#include "compiler/codegen/function.h"
+#include "bytecode/generator.h"
 
 namespace verona::compiler
 {
+  using bytecode::BytecodeWriter;
   using bytecode::FunctionABI;
+  using bytecode::Label;
   using bytecode::Opcode;
   using bytecode::Register;
   using bytecode::RegisterSpan;
