@@ -7,10 +7,12 @@
 
 namespace verona::compiler
 {
+  using bytecode::FunctionABI;
   using bytecode::Opcode;
   using bytecode::Register;
+  using bytecode::RegisterSpan;
 
-  struct BuiltinGenerator : public BaseFunctionGenerator
+  struct BuiltinGenerator : public bytecode::BaseFunctionGenerator
   {
     BuiltinGenerator(
       BytecodeWriter& writer, std::string_view name, FunctionABI abi)
@@ -117,7 +119,7 @@ namespace verona::compiler
       assert(abi.returns == 1);
 
       emit<Opcode::TraceRegion>(Register(1));
-      emit<Opcode::ClearList>(bytecode::RegisterSpan{Register(0), Register(1)});
+      emit<Opcode::ClearList>(RegisterSpan{Register(0), Register(1)});
       emit<Opcode::Return>();
     }
 
@@ -160,7 +162,7 @@ namespace verona::compiler
       assert(abi.returns == 1);
 
       emit<Opcode::FulfillSleepingCown>(Register(0), Register(1));
-      emit<Opcode::ClearList>(bytecode::RegisterSpan{Register(0), Register(1)});
+      emit<Opcode::ClearList>(RegisterSpan{Register(0), Register(1)});
       emit<Opcode::Return>();
     }
 
@@ -176,7 +178,9 @@ namespace verona::compiler
     Label label = program_table.find(writer, method);
     writer.define_label(label);
 
-    FunctionABI abi(*method.definition->signature);
+    auto& signature = *method.definition->signature;
+    FunctionABI abi(1 + signature.parameters.size(), 1);
+
     BuiltinGenerator generator(writer, method.instantiated_path(), abi);
     generator.generate_body(
       method.definition->parent->name, method.definition->name);

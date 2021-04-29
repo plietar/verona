@@ -13,13 +13,15 @@ namespace verona::compiler
 {
   using bytecode::CalleeRegister;
   using bytecode::Descriptor;
+  using bytecode::FunctionABI;
   using bytecode::Opcode;
+  using bytecode::Register;
   using bytecode::SelectorIdx;
 
   /**
    * Class for generating the body of methods from their IR.
    */
-  class IRGenerator : public FunctionGenerator<>
+  class IRGenerator : public bytecode::FunctionGenerator<Variable, BasicBlock*>
   {
   public:
     IRGenerator(
@@ -155,7 +157,7 @@ namespace verona::compiler
       SelectorIdx selector =
         method_selector(stmt.method, reify(stmt.type_arguments));
 
-      FunctionABI abi(stmt);
+      FunctionABI abi(stmt.arguments.size() + 1, 1);
       allocator().reserve_child_callspace(abi);
 
       size_t index = 0;
@@ -182,7 +184,8 @@ namespace verona::compiler
       // No clever type params on When closures yet.
       TypeList empty;
 
-      FunctionABI abi(stmt);
+      FunctionABI abi(stmt.cowns.size() + stmt.captures.size() + 1, 1);
+
       allocator().reserve_child_callspace(abi);
 
       // Store When arguments onto stack
@@ -502,8 +505,6 @@ namespace verona::compiler
     const CodegenItem<Method>& method_;
     const TypecheckResults& typecheck_;
     const LivenessAnalysis& liveness_;
-
-    FunctionABI abi_ = FunctionABI(*method_.definition->signature);
   };
 
   void generate_ir_function(
@@ -514,14 +515,11 @@ namespace verona::compiler
     const CodegenItem<Method>& method,
     const FnAnalysis& analysis)
   {
-    FunctionABI abi(*method.definition->signature);
-
     MethodIR& mir = *analysis.ir;
     for (size_t i = 0; i < mir.function_irs.size(); i++)
     {
       FunctionIR& ir = *mir.function_irs[i];
-      if (i != 0)
-        abi = FunctionABI::create_closure_abi(ir.parameters.size());
+      FunctionABI abi = FunctionABI(1 + ir.parameters.size(), 1);
 
       std::string name = method.instantiated_path();
       if (i != 0)
