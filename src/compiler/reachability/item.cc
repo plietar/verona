@@ -1,4 +1,4 @@
-#include "compiler/codegen/item.h"
+#include "compiler/reachability/item.h"
 
 #include "compiler/resolution.h"
 

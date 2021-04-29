@@ -6,7 +6,7 @@
 #include "compiler/codegen/descriptor.h"
 #include "compiler/codegen/function.h"
 #include "compiler/codegen/generator.h"
-#include "compiler/codegen/reachability.h"
+#include "compiler/reachability/reachability.h"
 #include "interpreter/bytecode.h"
 
 namespace verona::compiler

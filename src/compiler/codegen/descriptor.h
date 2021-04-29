@@ -3,9 +3,9 @@
 #pragma once
 
 #include "compiler/codegen/generator.h"
-#include "compiler/codegen/item.h"
-#include "compiler/codegen/reachability.h"
-#include "compiler/codegen/selector.h"
+#include "compiler/reachability/item.h"
+#include "compiler/reachability/reachability.h"
+#include "compiler/reachability/selector.h"
 
 namespace verona::compiler
 {

@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "compiler/codegen/reachability.h"
+#include "compiler/reachability/reachability.h"
 
 #include "compiler/analysis.h"
 #include "compiler/format.h"

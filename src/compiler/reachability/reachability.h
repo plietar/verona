@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "compiler/codegen/item.h"
-#include "compiler/codegen/selector.h"
 #include "compiler/instantiation.h"
+#include "compiler/reachability/item.h"
+#include "compiler/reachability/selector.h"
 #include "compiler/resolution.h"
 
 #include <unordered_set>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "compiler/ast.h"
-#include "compiler/codegen/selector.h"
+#include "compiler/reachability/selector.h"
 
 namespace verona::compiler
 {

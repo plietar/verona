@@ -1,8 +1,8 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "compiler/codegen/selector.h"
+#include "compiler/reachability/selector.h"
 
-#include "compiler/codegen/reachability.h"
+#include "compiler/reachability/reachability.h"
 
 namespace verona::compiler
 {
