@@ -39,28 +39,6 @@ namespace verona::compiler
     return truncate<uint8_t>(next_register_ + children_call_space_);
   }
 
-  FunctionGenerator::FunctionGenerator(
-    Context& context, Generator& gen, FunctionABI abi)
-  : context_(context), gen_(gen), abi_(abi)
-  {}
-
-  void FunctionGenerator::generate_header(std::string_view name)
-  {
-    gen_.str(name);
-    gen_.u8(truncate<uint8_t>(abi_.arguments));
-    gen_.u8(truncate<uint8_t>(abi_.returns));
-    gen_.u8(frame_size_);
-    size_t header_end = gen_.current_offset() + 4;
-    gen_.u32(end_label_, header_end);
-    assert(gen_.current_offset() == header_end);
-  }
-
-  void FunctionGenerator::finish()
-  {
-    gen_.define_label(end_label_);
-    gen_.define_relocatable(frame_size_, allocator_.frame_size());
-  }
-
   void emit_function(
     Context& context,
     const Reachability& reachability,
@@ -82,6 +60,10 @@ namespace verona::compiler
       if (i != 0)
         abi = FunctionABI::create_closure_abi(ir.parameters.size());
 
+      std::string name = method.instantiated_path();
+      if (i != 0)
+        name += ".$c." + std::to_string(i);
+
       IRGenerator v(
         context,
         reachability,
@@ -91,15 +73,10 @@ namespace verona::compiler
         method,
         *analysis.typecheck,
         *analysis.liveness,
-        closure_labels);
-
-      std::string name = method.instantiated_path();
-      if (i != 0)
-        name += ".$c." + std::to_string(i);
+        closure_labels,
+        name);
 
       gen.define_label(closure_labels[i]);
-
-      v.generate_header(name);
       v.generate_body(ir);
       v.finish();
     }
@@ -122,7 +99,7 @@ namespace verona::compiler
         gen.define_label(method_info.label.value());
         if (method.definition->kind() == Method::Builtin)
         {
-          BuiltinGenerator::generate(context, gen, method);
+          generate_builtin(gen, method);
         }
         else
         {

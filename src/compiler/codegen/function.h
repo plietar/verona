@@ -114,41 +114,87 @@ namespace verona::compiler
   };
 
   /**
-   * Utility class for generating function code.
+   * Utility class for generating functions.
    *
-   * This class does not actually generate the function's body, but handles all
-   * the extra work, such as generating the right header, register allocation
-   * and emitting child relative registers.
-   *
-   * The actual body generation depends on the kind of function being
-   * generated (i.e. builtin vs IR).
+   * This class provides emits the right header to the function, including
+   * taking care of computing the function's body and frame size.
    */
-  class FunctionGenerator
+  class BaseFunctionGenerator
   {
-  public:
-    FunctionGenerator(Context& context, Generator& gen, FunctionABI abi);
-
+    public:
     /**
-     * Emit the function's header.
+     * Initialize a function generator. Calling this constructor will
+     * immediately write the function header to the bytecode.
      */
-    void generate_header(std::string_view name);
-
-    /**
-     * Finish generating the function
-     *
-     * This must only be called once, after the function's body was generated.
-     */
-    void finish();
-
-    CalleeRegister callee_register(const FunctionABI& abi, uint8_t index)
+    BaseFunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi) :
+      gen_(gen),
+      allocator_(abi),
+      function_end_(gen.create_label()),
+      frame_size_(gen.create_relocatable())
     {
-      return CalleeRegister(abi.callspace(), frame_size_, Register(index));
+      gen.str(name);
+      gen.u8(truncate<uint8_t>(abi.arguments));
+      gen.u8(truncate<uint8_t>(abi.returns));
+      gen.u8(frame_size_);
+
+      // We emit the size of the method using the function_end label, relative
+      // to the end of the header. The header_end includes 4 bytes to account
+      // for the size field itself.
+      size_t header_end = gen.current_offset() + 4;
+      gen.u32(function_end_, header_end);
+      assert(gen.current_offset() == header_end);
     }
 
+    /**
+     * Emit an instruction to the bytecode.
+     */
     template<bytecode::Opcode Op, typename... Ts>
     void emit(Ts&&... ts)
     {
       gen_.emit<Op>(std::forward<Ts>(ts)...);
+    }
+
+    /**
+     * Finish generating the function.
+     *
+     * This must only be called once, after the function's body was generated.
+     * It updates the bytecode and frame size.
+     */
+    void finish()
+    {
+      gen_.define_label(function_end_);
+      gen_.define_relocatable(frame_size_, allocator_.frame_size());
+    }
+
+    RegisterAllocator& allocator()
+    {
+      return allocator_;
+    }
+
+    /**
+     * Get a Relocatable that corresponds to the function's frame size, ie. the
+     * total number of registers used.
+     *
+     * The actual value of this Relocatable isn't known until the function has
+     * been generated entirely and `finish()` is called, since it depends on the
+     * number of registers allocated.
+     */
+    Generator::Relocatable frame_size()
+    {
+      return frame_size_;
+    }
+
+    /**
+     * Get a handle to a callee's register. This is useful to setup parameters
+     * and access return values before and after a method call.
+     *
+     * The actual register index depends on the caller's frame size; therefore a
+     * special CalleeRegister is used, which can be used with the `emit` method
+     * anywhere a `Register` is expected.
+     */
+    CalleeRegister callee_register(const FunctionABI& callee_abi, uint8_t index)
+    {
+      return CalleeRegister(callee_abi.callspace(), frame_size_, Register(index));
     }
 
     Label create_label()
@@ -161,26 +207,124 @@ namespace verona::compiler
       gen_.define_label(label);
     }
 
-  protected:
-    Context& context_;
-    FunctionABI abi_;
-
-    RegisterAllocator allocator_ = RegisterAllocator(abi_);
-
   private:
     Generator& gen_;
-
-    /**
-     * Total number of registers used by the function.
-     * This is used in the function header, and when accessing child-relative
-     * registers.
-     */
-    Generator::Relocatable frame_size_ = gen_.create_relocatable();
+    RegisterAllocator allocator_;
 
     /**
      * Address of the end of the function. Used to compute the total function
      * size in the function header.
      */
-    Label end_label_ = gen_.create_label();
+    Label function_end_;
+
+    /**
+     * Total number of registers used by the function.
+     * This is used in the function header and when accessing child-relative
+     * registers.
+     */
+    Generator::Relocatable frame_size_;
+  };
+
+  /**
+   * An extension to BaseFunctionGenerator for generating functions from some IR
+   * representation.
+   *
+   * This class maintains mappings from IR variables and basic blocks to
+   * registers and labels.
+   */
+  template<
+    typename V = Variable,
+    typename B = BasicBlock*,
+    template<typename, typename, typename...> typename M = std::unordered_map>
+  class FunctionGenerator : public BaseFunctionGenerator
+  {
+    public:
+    FunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi) :
+      BaseFunctionGenerator(gen, name, abi) {}
+
+    /**
+     * Bind the function's parameter registers to the given SSA variables.
+     *
+     * Without this, calling the `variable` method on what should be function
+     * parameters would allocate fresh registers. Binding the parameters allows
+     * the variables to be tied to the correct registers.
+     *
+     * VS should be a collection of V or std::optional<V>. In the latter case,
+     * any nullopt entry found does not create a mapping, but still consumes a
+     * register.
+     *
+     * For example, binding the parameter list { nullopt, A, B } will map A to
+     * r1 and B to r2.
+     */
+    template<typename VS>
+    void bind_parameters(const VS& parameters)
+    {
+      assert(variables_.empty());
+      uint32_t index = 0;
+      for (std::optional<V> param : parameters)
+      {
+        if (param) {
+          variables_.insert({*param, Register(index)});
+        }
+        index += 1;
+      }
+    }
+
+    /**
+     * Get the Register associated with the given SSA variable.
+     *
+     * Registers are allocated lazily when this function is first called for the
+     * given basic block. Registers are currently never reused by other
+     * variables.
+     */
+    Register variable(V var)
+    {
+      auto [it, inserted] = variables_.insert({var, bytecode::Register(0)});
+      if (inserted)
+        it->second = allocator().get();
+      return it->second;
+    }
+
+    template<typename VS>
+    std::vector<Register> variables(const VS& vars)
+    {
+      std::vector<bytecode::Register> result;
+      for (auto v : vars)
+      {
+        result.push_back(variable(v));
+      }
+      return result;
+    }
+
+    /**
+     * Get the Label associated with the given basic block's address.
+     *
+     * Labels are created lazily when this function is first called for the
+     * given basic block.
+     */
+    Label label(B block)
+    {
+      auto [it, inserted] = labels.insert({block, Label()});
+      if (inserted)
+        it->second = create_label();
+      return it->second;
+    }
+
+    using BaseFunctionGenerator::define_label;
+    void define_label(B block)
+    {
+      BaseFunctionGenerator::define_label(label(block));
+    }
+
+  private:
+    /**
+     * A mapping from SSA variable to the corresponding allocated register.
+     */
+    M<V, bytecode::Register> variables_;
+
+    /**
+     * A mapping from basic block to the corresponding label.
+     */
+    M<B, Label> labels;
   };
 }

@@ -17,7 +17,7 @@ namespace verona::compiler
   /**
    * Class for generating the body of methods from their IR.
    */
-  class IRGenerator : public FunctionGenerator
+  class IRGenerator : public FunctionGenerator<>
   {
   public:
     IRGenerator(
@@ -29,8 +29,10 @@ namespace verona::compiler
       const CodegenItem<Method>& method,
       const TypecheckResults& typecheck,
       const LivenessAnalysis& liveness,
-      const std::vector<Label>& closure_labels)
-    : FunctionGenerator(context, gen, abi),
+      const std::vector<Label>& closure_labels,
+      std::string_view name)
+    : FunctionGenerator(gen, name, abi),
+      context_(context),
       reachability_(reachability),
       selectors_(selectors),
       method_(method),
@@ -48,7 +50,7 @@ namespace verona::compiler
       // which is what we want here.
       while (BasicBlock* bb = traversal.next())
       {
-        define_label(basic_block_label(bb));
+        define_label(bb);
 
         std::vector<Liveness> live_out = liveness_.statements_out(bb);
         for (const auto& [stmt, stmt_live_out] :
@@ -67,16 +69,14 @@ namespace verona::compiler
   private:
     void setup_parameters(const FunctionIR& ir)
     {
-      if (const auto& receiver = ir.receiver)
-      {
-        variables_.insert({*receiver, Register(0)});
-      }
+      std::vector<std::optional<Variable>> parameters;
 
-      size_t index = 1;
-      for (const auto& arg : ir.parameters)
-      {
-        variables_.insert({arg, Register(truncate<uint8_t>(index++))});
-      }
+      // The receiver is a nullopt if the method is a static one.
+      // We still need to consume a VM register, so include it in the list.
+      parameters.push_back(ir.receiver);
+      parameters.insert(parameters.end(), ir.parameters.begin(), ir.parameters.end());
+
+      bind_parameters(parameters);
     }
 
     /**
@@ -155,7 +155,7 @@ namespace verona::compiler
         method_selector(stmt.method, reify(stmt.type_arguments));
 
       FunctionABI abi(stmt);
-      allocator_.reserve_child_callspace(abi);
+      allocator().reserve_child_callspace(abi);
 
       size_t index = 0;
 
@@ -182,7 +182,7 @@ namespace verona::compiler
       TypeList empty;
 
       FunctionABI abi(stmt);
-      allocator_.reserve_child_callspace(abi);
+      allocator().reserve_child_callspace(abi);
 
       // Store When arguments onto stack
       // Index is 1, as we don't have a receiver (static method),
@@ -224,7 +224,7 @@ namespace verona::compiler
       Descriptor index =
         entity_descriptor(stmt.definition, reify(stmt.type_arguments));
 
-      Register descriptor = allocator_.get();
+      Register descriptor = allocator().get();
       emit<Opcode::LoadDescriptor>(descriptor, index);
 
       Register output = variable(stmt.output);
@@ -326,20 +326,19 @@ namespace verona::compiler
         emit<Opcode::Move>(variable(out_var), variable(in_var));
       }
 
-      emit<Opcode::Jump>(basic_block_label(term.target));
+      emit<Opcode::Jump>(label(term.target));
     }
 
     void visit_term(const MatchTerminator& term)
     {
       Register input = variable(term.input);
-      Register match_result = allocator_.get();
+      Register match_result = allocator().get();
 
       for (const auto& arm : term.arms)
       {
         TypePtr reified_pattern = reify(arm.type);
-        EmitMatch(this, input, context_)
-          .visit_type(reified_pattern, match_result);
-        emit<Opcode::JumpIf>(match_result, basic_block_label(arm.target));
+        EmitMatch(this, input).visit_type(reified_pattern, match_result);
+        emit<Opcode::JumpIf>(match_result, label(arm.target));
       }
       emit<Opcode::Unreachable>();
     }
@@ -347,8 +346,8 @@ namespace verona::compiler
     void visit_term(const IfTerminator& term)
     {
       Register input = variable(term.input);
-      emit<Opcode::JumpIf>(input, basic_block_label(term.true_target));
-      emit<Opcode::Jump>(basic_block_label(term.false_target));
+      emit<Opcode::JumpIf>(input, label(term.true_target));
+      emit<Opcode::Jump>(label(term.false_target));
     }
 
     void visit_term(const ReturnTerminator& term)
@@ -365,39 +364,6 @@ namespace verona::compiler
     }
 
     /**
-     * Get the Register associated with the given SSA variable.
-     *
-     * Registers are allocated lazily when this function is first called for the
-     * given basic block. Registers are currently never reused by other
-     * variables.
-     */
-    Register variable(Variable var)
-    {
-      auto [it, inserted] = variables_.insert({var, Register(0)});
-      if (inserted)
-      {
-        it->second = allocator_.get();
-      }
-      return it->second;
-    }
-
-    /**
-     * Get the Label associated with the given basic block's address.
-     *
-     * Labels are created lazily when this function is first called for the
-     * given basic block.
-     */
-    Label basic_block_label(const BasicBlock* bb)
-    {
-      // TODO: Avoid the double lookup. It's annoying to do because Label does
-      // not have a dummy value.
-      auto it = basic_block_labels_.find(bb);
-      if (it == basic_block_labels_.end())
-        it = basic_block_labels_.insert({bb, create_label()}).first;
-      return it->second;
-    }
-
-    /**
      * Type visitor used to emit the right bytecode sequence to match a value
      * against a given type.
      *
@@ -407,8 +373,8 @@ namespace verona::compiler
      */
     struct EmitMatch : public TypeVisitor<void, Register>
     {
-      EmitMatch(IRGenerator* parent, Register input, Context& context)
-      : parent(parent), input(input), context_(context)
+      EmitMatch(IRGenerator* parent, Register input)
+      : parent(parent), input(input)
       {}
 
       void
@@ -416,7 +382,7 @@ namespace verona::compiler
       {
         Descriptor index =
           parent->entity_descriptor(entity->definition, entity->arguments);
-        Register descriptor = parent->allocator_.get();
+        Register descriptor = parent->allocator().get();
         parent->emit<Opcode::LoadDescriptor>(descriptor, index);
         parent->emit<Opcode::MatchDescriptor>(output, input, descriptor);
       }
@@ -469,7 +435,7 @@ namespace verona::compiler
         //   "Matching against type {} is not supported\n", *type);
         // However, currently the earlier phases do not catch this.
         report(
-          context_,
+          parent->context_,
           std::nullopt,
           DiagnosticKind::Error,
           Diagnostic::PatternMatchOnUnsupportedType,
@@ -512,7 +478,7 @@ namespace verona::compiler
           visit_type(*it, output);
           it++;
 
-          Register rhs = parent->allocator_.get();
+          Register rhs = parent->allocator().get();
           for (; it != elements.end(); it++)
           {
             visit_type(*it, rhs);
@@ -525,9 +491,9 @@ namespace verona::compiler
     private:
       IRGenerator* parent;
       Register input;
-      Context& context_;
     };
 
+    Context& context_;
     const Reachability& reachability_;
     const SelectorTable& selectors_;
     const CodegenItem<Method>& method_;
@@ -536,8 +502,5 @@ namespace verona::compiler
     const std::vector<Label>& closure_labels_;
 
     FunctionABI abi_ = FunctionABI(*method_.definition->signature);
-
-    std::map<Variable, Register> variables_;
-    std::unordered_map<const BasicBlock*, Label> basic_block_labels_;
   };
 }
