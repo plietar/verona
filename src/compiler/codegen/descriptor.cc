@@ -74,7 +74,7 @@ namespace verona::compiler
       }
       else
       {
-         gen.u32(0);
+        gen.u32(0);
       }
 
       emit_methods(info);
@@ -125,16 +125,8 @@ namespace verona::compiler
     {
       for (const auto& method : info.methods)
       {
-        TypeList arguments;
-        for (const auto& param : method.definition->signature->generics->types)
-        {
-          arguments.push_back(method.instantiation.types().at(param->index));
-        }
-
+        bytecode::SelectorIdx index = selectors.get(method.selector());
         Label label = program_table.find(gen, method);
-        Selector selector =
-          Selector::method(method.definition->name, arguments);
-        SelectorIdx index = selectors.get(selector);
         gen.selector(index);
         gen.u32(label);
       }
@@ -168,13 +160,13 @@ namespace verona::compiler
       gen.u32(bytecode::DescriptorIdx::invalid().value);
     }
 
-    void emit_special_descriptors(const CodegenItem<Entity>& main_class)
+    void emit_special_descriptors(const CodegenItem<Method>& main)
     {
-      // Index of the main descriptor
-      gen.u32(program_table.find(gen, main_class));
+      // Index of the Main class descriptor
+      gen.u32(program_table.find(gen, main.parent()));
 
       // Index of the main selector
-      gen.selector(selectors.get(Selector::method("main", TypeList())));
+      gen.selector(selectors.get(main.selector()));
 
       emit_optional_special_descriptor("U64");
       emit_optional_special_descriptor("String");
@@ -194,7 +186,7 @@ namespace verona::compiler
     ProgramTable& program_table,
     const SelectorTable& selectors,
     Generator& gen,
-    const CodegenItem<Entity>& main)
+    const CodegenItem<Method>& main)
   {
     EmitProgramHeader emit(
       program, reachability, program_table, selectors, gen);

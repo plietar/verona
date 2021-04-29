@@ -3,6 +3,7 @@
 #pragma once
 
 #include "compiler/codegen/generator.h"
+#include "compiler/codegen/item.h"
 #include "compiler/codegen/reachability.h"
 #include "compiler/codegen/selector.h"
 
@@ -50,5 +51,5 @@ namespace verona::compiler
     ProgramTable& program_table,
     const SelectorTable& selectors,
     Generator& gen,
-    const CodegenItem<Entity>& main);
+    const CodegenItem<Method>& main);
 };

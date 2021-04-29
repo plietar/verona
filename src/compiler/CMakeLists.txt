@@ -30,6 +30,7 @@ add_library(veronac-lib
   codegen/descriptor.cc
   codegen/function.cc
   codegen/generator.cc
+  codegen/item.cc
   codegen/reachability.cc
   codegen/selector.cc
   context.cc

@@ -2,53 +2,20 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "compiler/ast.h"
+#include "compiler/codegen/item.h"
 #include "compiler/codegen/selector.h"
 #include "compiler/instantiation.h"
+#include "compiler/resolution.h"
 
 #include <unordered_set>
 
 /**
  * The reachability phase determines the set of items that need to be
  * codegenerated.
- *
- * It also assigns them relocatable labels and descriptor identifiers. These
- * will be defined to the correct value when they are emitted.
  */
 namespace verona::compiler
 {
   struct AnalysisResults;
-
-  /**
-   * A reference to an AST node with a specific instantiation.
-   */
-  template<typename T>
-  struct CodegenItem
-  {
-    const T* definition;
-    Instantiation instantiation;
-
-    explicit CodegenItem(const T* definition, Instantiation instantiation)
-    : definition(definition), instantiation(instantiation)
-    {}
-
-    std::string instantiated_path() const
-    {
-      return definition->instantiated_path(instantiation);
-    }
-
-    bool operator<(const CodegenItem<T>& other) const
-    {
-      return std::tie(definition, instantiation) <
-        std::tie(other.definition, other.instantiation);
-    }
-
-    bool operator==(const CodegenItem<T>& other) const
-    {
-      return std::tie(definition, instantiation) ==
-        std::tie(other.definition, other.instantiation);
-    }
-  };
 
   struct EntityReachability
   {
@@ -58,6 +25,14 @@ namespace verona::compiler
     // Set of reified entities which are subtypes of this one. It will only be
     // non-empty for interfaces.
     std::set<CodegenItem<Entity>> subtypes;
+
+    void add_method(const CodegenItem<Method>& method)
+    {
+      if (method.definition->is_finaliser())
+        finaliser = method;
+
+      methods.push_back(method);
+    }
   };
 
   struct Reachability
@@ -93,11 +68,15 @@ namespace verona::compiler
   Reachability compute_reachability(
     Context& context,
     const Program& program,
-    CodegenItem<Entity> main_class,
-    CodegenItem<Method> main_method,
+    CodegenItem<Method> main,
     const AnalysisResults& analysis);
 
-  std::ostream& operator<<(std::ostream& s, const CodegenItem<Method>& item);
-  std::ostream& operator<<(std::ostream& s, const CodegenItem<Entity>& item);
-  std::ostream& operator<<(std::ostream& s, const Selector& selector);
+  /**
+   * Search for the program entrypoint and check it has the right signature.
+   *
+   * Returns nullopt and raises errors in the context if the entrypoint isn't
+   * found or is invalid.
+   */
+  std::optional<CodegenItem<Method>>
+  find_program_entry(Context& context, const Program& program);
 }

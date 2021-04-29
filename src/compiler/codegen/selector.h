@@ -60,4 +60,6 @@ namespace verona::compiler
 
     std::map<Selector, bytecode::SelectorIdx> selectors_;
   };
+
+  std::ostream& operator<<(std::ostream& s, const Selector& selector);
 }

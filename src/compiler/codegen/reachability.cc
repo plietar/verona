@@ -30,12 +30,11 @@ namespace verona::compiler
       solver_out_(context_.dump("reachability-solver"))
     {}
 
-    void
-    process(CodegenItem<Entity> main_class, CodegenItem<Method> main_method)
+    void process(CodegenItem<Method> main)
     {
       // The class must be processed before the method
-      push(main_class);
-      push(main_method);
+      push(main.parent());
+      push(main);
 
       while (!queue_.empty())
       {
@@ -89,6 +88,8 @@ namespace verona::compiler
         {
           if (mtd->is_finaliser())
           {
+            // Finalisers never have type parameters, so we can reuse item's
+            // instantiation
             CodegenItem<Method> method_item(mtd, item.instantiation);
             visit_item(method_item);
           }
@@ -152,7 +153,7 @@ namespace verona::compiler
         // and needs to be added to the queue.
         for (const auto& method : super_info.methods)
         {
-          push_method_to_subtype(sub, method);
+          push(sub.method(method.selector()));
         }
       }
     }
@@ -198,74 +199,23 @@ namespace verona::compiler
       return !solutions.empty();
     }
 
-    /**
-     * Given a reachable method `super_method`, find the method in `sub` that
-     * has the same name and arity and add that one to the processing queue,
-     * using the same type arguments.
-     *
-     * This method needs to be called:
-     * - When reaching a new method of an entity with subtypes.
-     * - When reaching a new subtyping relationship, for every method of the
-     *   supertype.
-     */
-    void push_method_to_subtype(
-      const CodegenItem<Entity>& sub, const CodegenItem<Method>& super_method)
-    {
-      const std::string& name = super_method.definition->name;
-      const Method* sub_method = lookup_member<Method>(sub.definition, name);
-
-      if (sub_method == nullptr)
-        throw std::logic_error("Method missing in subtype.");
-
-      // We need to build the instantiation for sub_method, by combining sub's
-      // type parameters with the ones passed to the method itself.
-      TypeList arguments = sub.instantiation.types();
-      for (const auto& param :
-           super_method.definition->signature->generics->types)
-      {
-        arguments.push_back(
-          super_method.instantiation.types().at(param->index));
-      }
-
-      push(CodegenItem(sub_method, Instantiation(arguments)));
-    }
-
-    /**
-     * Find the entity item this method is defined on.
-     */
-    CodegenItem<Entity> parent_item(const CodegenItem<Method>& item)
-    {
-      const Entity* definition = item.definition->parent;
-      TypeList arguments;
-      for (const auto& param : definition->generics->types)
-      {
-        arguments.push_back(item.instantiation.types().at(param->index));
-      }
-      return CodegenItem(definition, Instantiation(arguments));
-    }
-
     void visit_item(const CodegenItem<Method>& item)
     {
-      CodegenItem<Entity> parent = parent_item(item);
+      CodegenItem<Entity> parent = item.parent();
+      Selector selector = item.selector();
+
       if (auto it = result_.equivalent_entities.find(parent);
           it != result_.equivalent_entities.end())
       {
         // Make the method reachable on the equivalent entity instead.
-        push_method_to_subtype(it->second, item);
+        push(it->second.method(selector));
         return;
       }
 
+      result_.selectors.insert(selector);
+
       EntityReachability& parent_info = result_.entities.at(parent);
-      add_method(parent_info, item);
-
-      TypeList arguments;
-      for (const auto& param : item.definition->signature->generics->types)
-      {
-        arguments.push_back(item.instantiation.types().at(param->index));
-      }
-
-      result_.selectors.insert(
-        Selector::method(item.definition->name, arguments));
+      parent_info.add_method(item);
 
       visit_signature(item.definition->signature->types, item.instantiation);
       visit_generic_bounds(
@@ -277,7 +227,7 @@ namespace verona::compiler
       // Also add that method for any already known subtype
       for (const auto& subtype : parent_info.subtypes)
       {
-        push_method_to_subtype(subtype, item);
+        push(subtype.method(selector));
       }
     }
 
@@ -561,15 +511,6 @@ namespace verona::compiler
       return it->second;
     }
 
-    void
-    add_method(EntityReachability& parent, const CodegenItem<Method>& method)
-    {
-      if (method.definition->is_finaliser())
-        parent.finaliser = method;
-
-      parent.methods.push_back(method);
-    }
-
     Context& context_;
     const Program& program_;
     const AnalysisResults& analysis_;
@@ -642,26 +583,77 @@ namespace verona::compiler
   Reachability compute_reachability(
     Context& context,
     const Program& program,
-    CodegenItem<Entity> main_class,
-    CodegenItem<Method> main_method,
+    CodegenItem<Method> main,
     const AnalysisResults& analysis)
   {
     ReachabilityVisitor v(context, program, analysis);
-    v.process(main_class, main_method);
+    v.process(main);
 
     dump_reachability(context, v.result_);
 
     return v.result_;
   }
 
-  std::ostream& operator<<(std::ostream& s, const CodegenItem<Method>& item)
+  bool is_valid_main_signature(Context& context, const FnSignature& signature)
   {
-    return s << item.definition->instantiated_path(item.instantiation);
+    return signature.generics->types.empty() && signature.receiver == nullptr &&
+      signature.types.arguments.empty() &&
+      signature.types.return_type == context.mk_unit();
   }
 
-  std::ostream& operator<<(std::ostream& s, const CodegenItem<Entity>& item)
+  std::optional<CodegenItem<Method>>
+  find_program_entry(Context& context, const Program& program)
   {
-    return s << item.definition->instantiated_path(item.instantiation);
+    const Entity* main_class = program.find_entity("Main");
+    if (!main_class)
+    {
+      report(
+        context, std::nullopt, DiagnosticKind::Error, Diagnostic::NoMainClass);
+      return std::nullopt;
+    }
+
+    if (main_class->kind->value() != Entity::Class)
+    {
+      report(
+        context,
+        main_class->name.source_range,
+        DiagnosticKind::Error,
+        Diagnostic::MainNotAClass);
+      return std::nullopt;
+    }
+
+    if (!main_class->generics->types.empty())
+    {
+      report(
+        context,
+        main_class->name.source_range,
+        DiagnosticKind::Error,
+        Diagnostic::MainClassIsGeneric);
+      return std::nullopt;
+    }
+
+    const Method* main_method = lookup_member<Method>(main_class, "main");
+    if (!main_method)
+    {
+      report(
+        context,
+        main_class->name.source_range,
+        DiagnosticKind::Error,
+        Diagnostic::NoMainMethod);
+      return std::nullopt;
+    }
+
+    if (!is_valid_main_signature(context, *main_method->signature))
+    {
+      report(
+        context,
+        main_method->name.source_range,
+        DiagnosticKind::Error,
+        Diagnostic::InvalidMainSignature);
+      return std::nullopt;
+    }
+
+    return CodegenItem(main_method, Instantiation::empty());
   }
 
   std::ostream& operator<<(std::ostream& s, const Selector& selector)
