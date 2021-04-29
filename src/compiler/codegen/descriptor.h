@@ -9,9 +9,9 @@
 
 namespace verona::compiler
 {
-  using bytecode::Label;
-  using bytecode::Generator;
   using bytecode::Descriptor;
+  using bytecode::Generator;
+  using bytecode::Label;
 
   /**
    * The program table maintains a mapping from items being codegen'ed to their

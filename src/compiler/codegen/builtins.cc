@@ -1,8 +1,9 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 #include "compiler/codegen/builtins.h"
-#include "compiler/codegen/function.h"
+
 #include "bytecode/bytecode.h"
+#include "compiler/codegen/function.h"
 
 namespace verona::compiler
 {

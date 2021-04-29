@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "ds/helpers.h"
 #include "bytecode/bytecode.h"
+#include "ds/helpers.h"
 
 #include <functional>
 #include <iostream>
@@ -241,9 +241,7 @@ namespace verona::bytecode
   struct CalleeRegister
   {
     CalleeRegister(
-      size_t callspace,
-      Generator::Relocatable frame_size,
-      Register reg)
+      size_t callspace, Generator::Relocatable frame_size, Register reg)
     : callspace(callspace), frame_size(frame_size), reg(reg)
     {
       if (reg.value >= callspace)
@@ -290,8 +288,7 @@ namespace verona::bytecode
   template<>
   struct Generator::emit_helper<Register>
   {
-    static void
-    write(Generator* gen, size_t opcode_start, Register value)
+    static void write(Generator* gen, size_t opcode_start, Register value)
     {
       gen->u8(value.value);
     }
@@ -306,8 +303,7 @@ namespace verona::bytecode
   template<>
   struct Generator::emit_helper<DescriptorIdx>
   {
-    static void
-    write(Generator* gen, size_t opcode_start, DescriptorIdx value)
+    static void write(Generator* gen, size_t opcode_start, DescriptorIdx value)
     {
       gen->u32(value.value);
     }
@@ -331,8 +327,7 @@ namespace verona::bytecode
   template<>
   struct Generator::emit_helper<RegisterSpan>
   {
-    static void
-    write(Generator* gen, size_t opcode_start, RegisterSpan value)
+    static void write(Generator* gen, size_t opcode_start, RegisterSpan value)
     {
       size_t size = value.size();
       gen->u8(truncate<uint8_t>(size));

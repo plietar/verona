@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "bytecode/generator.h"
 #include "compiler/analysis.h"
 #include "compiler/codegen/descriptor.h"
-#include "bytecode/generator.h"
 
 namespace verona::compiler
 {
-  using bytecode::Register;
   using bytecode::CalleeRegister;
   using bytecode::Generator;
+  using bytecode::Register;
 
   void emit_functions(
     Context& context,

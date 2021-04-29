@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "compiler/type.h"
 #include "bytecode/bytecode.h"
+#include "compiler/type.h"
 
 #include <map>
 
