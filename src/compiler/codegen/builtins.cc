@@ -12,8 +12,9 @@ namespace verona::compiler
 
   struct BuiltinGenerator : public BaseFunctionGenerator
   {
-    BuiltinGenerator(Generator& gen, std::string_view name, FunctionABI abi)
-    : BaseFunctionGenerator(gen, name, abi), abi(abi)
+    BuiltinGenerator(
+      BytecodeWriter& writer, std::string_view name, FunctionABI abi)
+    : BaseFunctionGenerator(writer, name, abi), abi(abi)
     {}
 
     /**
@@ -168,7 +169,7 @@ namespace verona::compiler
   };
 
   void generate_builtin(
-    Generator& writer,
+    BytecodeWriter& writer,
     ProgramTable& program_table,
     const CodegenItem<Method>& method)
   {
@@ -176,8 +177,9 @@ namespace verona::compiler
     writer.define_label(label);
 
     FunctionABI abi(*method.definition->signature);
-    BuiltinGenerator gen(writer, method.instantiated_path(), abi);
-    gen.generate_body(method.definition->parent->name, method.definition->name);
-    gen.finish();
+    BuiltinGenerator generator(writer, method.instantiated_path(), abi);
+    generator.generate_body(
+      method.definition->parent->name, method.definition->name);
+    generator.finish();
   }
 }

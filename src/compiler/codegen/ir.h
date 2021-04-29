@@ -26,13 +26,13 @@ namespace verona::compiler
       Context& context,
       ProgramTable& program_table,
       const SelectorTable& selectors,
-      Generator& gen,
+      BytecodeWriter& writer,
       FunctionABI abi,
       const CodegenItem<Method>& method,
       const TypecheckResults& typecheck,
       const LivenessAnalysis& liveness,
       std::string_view name)
-    : FunctionGenerator(gen, name, abi),
+    : FunctionGenerator(writer, name, abi),
       context_(context),
       program_table_(program_table),
       selectors_(selectors),
@@ -510,7 +510,7 @@ namespace verona::compiler
     Context& context,
     ProgramTable& program_table,
     const SelectorTable& selectors,
-    Generator& gen,
+    BytecodeWriter& writer,
     const CodegenItem<Method>& method,
     const FnAnalysis& analysis)
   {
@@ -527,22 +527,22 @@ namespace verona::compiler
       if (i != 0)
         name += ".$c." + std::to_string(i);
 
-      Label label = program_table.find(gen, method, i);
-      gen.define_label(label);
+      Label label = program_table.find(writer, method, i);
+      writer.define_label(label);
 
-      IRGenerator v(
+      IRGenerator generator(
         context,
         program_table,
         selectors,
-        gen,
+        writer,
         abi,
         method,
         *analysis.typecheck,
         *analysis.liveness,
         name);
 
-      v.generate_body(ir);
-      v.finish();
+      generator.generate_body(ir);
+      generator.finish();
     }
   }
 }

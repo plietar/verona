@@ -34,21 +34,21 @@ namespace verona::bytecode
    * known. For each such value, a Relocatable handle is obtained using
    * `create_relocatable`.
    *
-   * The handle can be written using Generator's overloaded methods that take
-   * Relocatable arguments. Space will be made in the output data, and a
+   * The handle can be written using BytecodeWriter's overloaded methods that
+   * take Relocatable arguments. Space will be made in the output data, and a
    * relocation will be registered.
    *
    * `define_relocatable` is used once the actual value is known. However
    * relocations are not actually resolved until `finish` is called.
    *
    */
-  class Generator
+  class BytecodeWriter
   {
   public:
     struct Relocatable;
     typedef uint64_t RelocationValue;
 
-    Generator(std::vector<uint8_t>& code) : code_(code) {}
+    BytecodeWriter(std::vector<uint8_t>& code) : code_(code) {}
 
     /**
      * Write integer values in little endian format.
@@ -190,7 +190,7 @@ namespace verona::bytecode
   /**
    * Opaque handle to a relocatable value.
    */
-  struct Generator::Relocatable
+  struct BytecodeWriter::Relocatable
   {
     explicit Relocatable() : index(SIZE_MAX) {}
     bool is_valid() const
@@ -201,7 +201,7 @@ namespace verona::bytecode
   private:
     explicit Relocatable(size_t index) : index(index) {}
     size_t index;
-    friend Generator;
+    friend BytecodeWriter;
   };
 
   /**
@@ -210,12 +210,12 @@ namespace verona::bytecode
   struct Label
   {
     explicit Label() {}
-    explicit Label(Generator::Relocatable relocatable)
+    explicit Label(BytecodeWriter::Relocatable relocatable)
     : relocatable(relocatable)
     {}
-    Generator::Relocatable relocatable;
+    BytecodeWriter::Relocatable relocatable;
 
-    operator Generator::Relocatable() const
+    operator BytecodeWriter::Relocatable() const
     {
       return relocatable;
     }
@@ -227,12 +227,12 @@ namespace verona::bytecode
   struct Descriptor
   {
     explicit Descriptor() {}
-    explicit Descriptor(Generator::Relocatable relocatable)
+    explicit Descriptor(BytecodeWriter::Relocatable relocatable)
     : relocatable(relocatable)
     {}
-    Generator::Relocatable relocatable;
+    BytecodeWriter::Relocatable relocatable;
 
-    operator Generator::Relocatable() const
+    operator BytecodeWriter::Relocatable() const
     {
       return relocatable;
     }
@@ -241,7 +241,7 @@ namespace verona::bytecode
   struct CalleeRegister
   {
     CalleeRegister(
-      size_t callspace, Generator::Relocatable frame_size, Register reg)
+      size_t callspace, BytecodeWriter::Relocatable frame_size, Register reg)
     : callspace(callspace), frame_size(frame_size), reg(reg)
     {
       if (reg.value >= callspace)
@@ -250,15 +250,15 @@ namespace verona::bytecode
     }
 
     size_t callspace;
-    Generator::Relocatable frame_size;
+    BytecodeWriter::Relocatable frame_size;
     Register reg;
   };
 
   template<typename T>
-  struct Generator::emit_helper<T, std::enable_if_t<std::is_integral_v<T>>>
+  struct BytecodeWriter::emit_helper<T, std::enable_if_t<std::is_integral_v<T>>>
   {
     template<typename U>
-    static void write(Generator* gen, size_t opcode_start, U value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, U value)
     {
       static_assert(
         std::is_same_v<T, U>, "Attempting to convert types implicitely");
@@ -267,9 +267,10 @@ namespace verona::bytecode
   };
 
   template<typename T>
-  struct Generator::emit_helper<T, std::enable_if_t<detail::is_enum_class_v<T>>>
+  struct BytecodeWriter::
+    emit_helper<T, std::enable_if_t<detail::is_enum_class_v<T>>>
   {
-    static void write(Generator* gen, size_t opcode_start, T value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, T value)
     {
       using wire_type = std::underlying_type_t<T>;
       gen->write<wire_type>(static_cast<wire_type>(value));
@@ -277,57 +278,60 @@ namespace verona::bytecode
   };
 
   template<typename T>
-  struct Generator::emit_helper<T, std::enable_if_t<is_wrapper_v<T>>>
+  struct BytecodeWriter::emit_helper<T, std::enable_if_t<is_wrapper_v<T>>>
   {
-    static void write(Generator* gen, size_t opcode_start, T value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, T value)
     {
       gen->write<typename T::underlying_type>(value.value);
     }
   };
 
   template<>
-  struct Generator::emit_helper<Register>
+  struct BytecodeWriter::emit_helper<Register>
   {
-    static void write(Generator* gen, size_t opcode_start, Register value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, Register value)
     {
       gen->u8(value.value);
     }
 
     static void
-    write(Generator* gen, size_t opcode_start, const CalleeRegister& value)
+    write(BytecodeWriter* gen, size_t opcode_start, const CalleeRegister& value)
     {
       gen->u8(value.frame_size, value.callspace - value.reg.value);
     }
   };
 
   template<>
-  struct Generator::emit_helper<DescriptorIdx>
+  struct BytecodeWriter::emit_helper<DescriptorIdx>
   {
-    static void write(Generator* gen, size_t opcode_start, DescriptorIdx value)
+    static void
+    write(BytecodeWriter* gen, size_t opcode_start, DescriptorIdx value)
     {
       gen->u32(value.value);
     }
 
-    static void write(Generator* gen, size_t opcode_start, Descriptor value)
+    static void
+    write(BytecodeWriter* gen, size_t opcode_start, Descriptor value)
     {
       gen->u32(value);
     }
   };
 
   template<>
-  struct Generator::emit_helper<std::string_view>
+  struct BytecodeWriter::emit_helper<std::string_view>
   {
     static void
-    write(Generator* gen, size_t opcode_start, std::string_view value)
+    write(BytecodeWriter* gen, size_t opcode_start, std::string_view value)
     {
       gen->str(value);
     }
   };
 
   template<>
-  struct Generator::emit_helper<RegisterSpan>
+  struct BytecodeWriter::emit_helper<RegisterSpan>
   {
-    static void write(Generator* gen, size_t opcode_start, RegisterSpan value)
+    static void
+    write(BytecodeWriter* gen, size_t opcode_start, RegisterSpan value)
     {
       size_t size = value.size();
       gen->u8(truncate<uint8_t>(size));
@@ -339,18 +343,18 @@ namespace verona::bytecode
   };
 
   template<>
-  struct Generator::emit_helper<RelativeOffset>
+  struct BytecodeWriter::emit_helper<RelativeOffset>
   {
-    static void write(Generator* gen, size_t opcode_start, Label value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, Label value)
     {
       gen->s16(value, opcode_start);
     }
   };
 
   template<>
-  struct Generator::emit_helper<AbsoluteOffset>
+  struct BytecodeWriter::emit_helper<AbsoluteOffset>
   {
-    static void write(Generator* gen, size_t opcode_start, Label value)
+    static void write(BytecodeWriter* gen, size_t opcode_start, Label value)
     {
       gen->u32(value);
     }

@@ -1,3 +1,3 @@
-add_library(bytecode bytecode.cc generator.cc)
+add_library(bytecode bytecode.cc writer.cc)
 target_link_libraries(bytecode fmt)
 

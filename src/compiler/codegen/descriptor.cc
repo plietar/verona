@@ -16,24 +16,24 @@ namespace verona::compiler
       const Reachability& reachability,
       ProgramTable& program_table,
       const SelectorTable& selectors,
-      Generator& gen)
+      BytecodeWriter& writer)
     : program(program),
       reachability(reachability),
       program_table(program_table),
       selectors(selectors),
-      gen(gen)
+      writer(writer)
     {}
 
     void emit_descriptor_table()
     {
       // Number of descriptors
-      gen.u32(truncate<uint32_t>(reachability.entities.size()));
+      writer.u32(truncate<uint32_t>(reachability.entities.size()));
 
       size_t index = 0;
       for (const auto& [entity, info] : reachability.entities)
       {
-        Descriptor descriptor = program_table.find(gen, entity);
-        gen.define_relocatable(descriptor, index++);
+        Descriptor descriptor = program_table.find(writer, entity);
+        writer.define_relocatable(descriptor, index++);
         emit_descriptor(entity, info);
       }
     }
@@ -59,41 +59,41 @@ namespace verona::compiler
     void emit_class_primitive_descriptor(
       const CodegenItem<Entity>& entity, const EntityReachability& info)
     {
-      Generator::Relocatable rel_fields = gen.create_relocatable();
+      BytecodeWriter::Relocatable rel_fields = writer.create_relocatable();
 
-      gen.str(entity.instantiated_path());
-      gen.u32(truncate<uint32_t>(info.methods.size()));
-      gen.u32(rel_fields);
-      gen.u32(truncate<uint32_t>(info.subtypes.size()));
+      writer.str(entity.instantiated_path());
+      writer.u32(truncate<uint32_t>(info.methods.size()));
+      writer.u32(rel_fields);
+      writer.u32(truncate<uint32_t>(info.subtypes.size()));
 
       // Output label for finaliser for this class, if it has one.
       if (info.finaliser.has_value())
       {
-        Label label = program_table.find(gen, *info.finaliser);
-        gen.u32(label);
+        Label label = program_table.find(writer, *info.finaliser);
+        writer.u32(label);
       }
       else
       {
-        gen.u32(0);
+        writer.u32(0);
       }
 
       emit_methods(info);
       uint32_t field_count = emit_fields(entity);
       emit_subtypes(info);
 
-      gen.define_relocatable(rel_fields, field_count);
+      writer.define_relocatable(rel_fields, field_count);
     }
 
     void emit_interface_descriptor(
       const CodegenItem<Entity>& entity, const EntityReachability& info)
     {
-      gen.str(entity.instantiated_path());
-      gen.u32(0); // method_slots
-      gen.u32(0); // method_count
-      gen.u32(0); // field_slots
-      gen.u32(0); // field_count
-      gen.u32(truncate<uint32_t>(info.subtypes.size()));
-      gen.u32(0); // finaliser
+      writer.str(entity.instantiated_path());
+      writer.u32(0); // method_slots
+      writer.u32(0); // method_count
+      writer.u32(0); // field_slots
+      writer.u32(0); // field_count
+      writer.u32(truncate<uint32_t>(info.subtypes.size()));
+      writer.u32(0); // finaliser
       emit_subtypes(info);
     }
 
@@ -110,7 +110,7 @@ namespace verona::compiler
         if (const Field* fld = member->get_as<Field>())
         {
           SelectorIdx index = selectors.get(Selector::field(fld->name));
-          gen.selector(index);
+          writer.selector(index);
           field_count++;
         }
       }
@@ -126,9 +126,9 @@ namespace verona::compiler
       for (const auto& method : info.methods)
       {
         bytecode::SelectorIdx index = selectors.get(method.selector());
-        Label label = program_table.find(gen, method);
-        gen.selector(index);
-        gen.u32(label);
+        Label label = program_table.find(writer, method);
+        writer.selector(index);
+        writer.u32(label);
       }
     }
 
@@ -138,8 +138,8 @@ namespace verona::compiler
       for (const auto& subtype : info.subtypes)
       {
         const auto& subtype_info = reachability.entities.at(subtype);
-        Descriptor descriptor = program_table.find(gen, subtype);
-        gen.u32(descriptor);
+        Descriptor descriptor = program_table.find(writer, subtype);
+        writer.u32(descriptor);
       }
     }
 
@@ -151,22 +151,22 @@ namespace verona::compiler
         CodegenItem item(entity, Instantiation::empty());
         if (reachability.is_reachable(item))
         {
-          Descriptor descriptor = program_table.find(gen, item);
-          gen.u32(descriptor);
+          Descriptor descriptor = program_table.find(writer, item);
+          writer.u32(descriptor);
           return;
         }
       }
 
-      gen.u32(bytecode::DescriptorIdx::invalid().value);
+      writer.u32(bytecode::DescriptorIdx::invalid().value);
     }
 
     void emit_special_descriptors(const CodegenItem<Method>& main)
     {
       // Index of the Main class descriptor
-      gen.u32(program_table.find(gen, main.parent()));
+      writer.u32(program_table.find(writer, main.parent()));
 
       // Index of the main selector
-      gen.selector(selectors.get(main.selector()));
+      writer.selector(selectors.get(main.selector()));
 
       emit_optional_special_descriptor("U64");
       emit_optional_special_descriptor("String");
@@ -177,7 +177,7 @@ namespace verona::compiler
     const Reachability& reachability;
     ProgramTable& program_table;
     const SelectorTable& selectors;
-    Generator& gen;
+    BytecodeWriter& writer;
   };
 
   void emit_program_header(
@@ -185,11 +185,11 @@ namespace verona::compiler
     const Reachability& reachability,
     ProgramTable& program_table,
     const SelectorTable& selectors,
-    Generator& gen,
+    BytecodeWriter& writer,
     const CodegenItem<Method>& main)
   {
     EmitProgramHeader emit(
-      program, reachability, program_table, selectors, gen);
+      program, reachability, program_table, selectors, writer);
     emit.emit_descriptor_table();
     emit.emit_special_descriptors(main);
   }

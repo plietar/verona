@@ -3,7 +3,7 @@
 #include "compiler/codegen/codegen.h"
 
 #include "bytecode/bytecode.h"
-#include "bytecode/generator.h"
+#include "bytecode/writer.h"
 #include "compiler/ast.h"
 #include "compiler/codegen/descriptor.h"
 #include "compiler/codegen/function.h"
@@ -13,9 +13,9 @@ namespace verona::compiler
 {
   /**
    * Writes the magic numbers to the bytecode
-   * @param code Generator to which the bytes should be emitted
+   * @param code BytecodeWriter to which the bytes should be emitted
    */
-  void write_magic_number(Generator& code)
+  void write_magic_number(BytecodeWriter& code)
   {
     code.u32(bytecode::MAGIC_NUMBER);
   }
@@ -29,8 +29,8 @@ namespace verona::compiler
 
     std::vector<uint8_t> code;
 
-    Generator gen(code);
-    write_magic_number(gen);
+    BytecodeWriter writer(code);
+    write_magic_number(writer);
 
     Reachability reachability =
       compute_reachability(context, program, *entry, analysis);
@@ -38,11 +38,11 @@ namespace verona::compiler
     ProgramTable program_table;
 
     emit_program_header(
-      program, reachability, program_table, selectors, gen, *entry);
+      program, reachability, program_table, selectors, writer, *entry);
     emit_functions(
-      context, analysis, reachability, program_table, selectors, gen);
+      context, analysis, reachability, program_table, selectors, writer);
 
-    gen.finish();
+    writer.finish();
 
     return code;
   }

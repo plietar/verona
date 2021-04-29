@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "bytecode/generator.h"
+#include "bytecode/writer.h"
 #include "compiler/analysis.h"
 #include "compiler/codegen/descriptor.h"
 
 namespace verona::compiler
 {
+  using bytecode::BytecodeWriter;
   using bytecode::CalleeRegister;
-  using bytecode::Generator;
   using bytecode::Register;
 
   void emit_functions(
@@ -18,7 +18,7 @@ namespace verona::compiler
     const Reachability& reachability,
     ProgramTable& program_table,
     const SelectorTable& selectors,
-    Generator& gen);
+    BytecodeWriter& writer);
 
   struct FunctionABI
   {
@@ -116,23 +116,23 @@ namespace verona::compiler
      * immediately write the function header to the bytecode.
      */
     BaseFunctionGenerator(
-      Generator& gen, std::string_view name, FunctionABI abi)
-    : gen_(gen),
+      BytecodeWriter& writer, std::string_view name, FunctionABI abi)
+    : writer_(writer),
       allocator_(abi),
-      function_end_(gen.create_label()),
-      frame_size_(gen.create_relocatable())
+      function_end_(writer.create_label()),
+      frame_size_(writer.create_relocatable())
     {
-      gen.str(name);
-      gen.u8(truncate<uint8_t>(abi.arguments));
-      gen.u8(truncate<uint8_t>(abi.returns));
-      gen.u8(frame_size_);
+      writer.str(name);
+      writer.u8(truncate<uint8_t>(abi.arguments));
+      writer.u8(truncate<uint8_t>(abi.returns));
+      writer.u8(frame_size_);
 
       // We emit the size of the method using the function_end label, relative
       // to the end of the header. The header_end includes 4 bytes to account
       // for the size field itself.
-      size_t header_end = gen.current_offset() + 4;
-      gen.u32(function_end_, header_end);
-      assert(gen.current_offset() == header_end);
+      size_t header_end = writer.current_offset() + 4;
+      writer.u32(function_end_, header_end);
+      assert(writer.current_offset() == header_end);
     }
 
     /**
@@ -141,7 +141,7 @@ namespace verona::compiler
     template<bytecode::Opcode Op, typename... Ts>
     void emit(Ts&&... ts)
     {
-      gen_.emit<Op>(std::forward<Ts>(ts)...);
+      writer_.emit<Op>(std::forward<Ts>(ts)...);
     }
 
     /**
@@ -152,8 +152,8 @@ namespace verona::compiler
      */
     void finish()
     {
-      gen_.define_label(function_end_);
-      gen_.define_relocatable(frame_size_, allocator_.frame_size());
+      writer_.define_label(function_end_);
+      writer_.define_relocatable(frame_size_, allocator_.frame_size());
     }
 
     RegisterAllocator& allocator()
@@ -169,7 +169,7 @@ namespace verona::compiler
      * been generated entirely and `finish()` is called, since it depends on the
      * number of registers allocated.
      */
-    Generator::Relocatable frame_size()
+    BytecodeWriter::Relocatable frame_size()
     {
       return frame_size_;
     }
@@ -190,21 +190,21 @@ namespace verona::compiler
 
     Label create_label()
     {
-      return gen_.create_label();
+      return writer_.create_label();
     }
 
     void define_label(Label label)
     {
-      gen_.define_label(label);
+      writer_.define_label(label);
     }
 
-    Generator& writer()
+    BytecodeWriter& writer()
     {
-      return gen_;
+      return writer_;
     }
 
   private:
-    Generator& gen_;
+    BytecodeWriter& writer_;
     RegisterAllocator allocator_;
 
     /**
@@ -218,7 +218,7 @@ namespace verona::compiler
      * This is used in the function header and when accessing child-relative
      * registers.
      */
-    Generator::Relocatable frame_size_;
+    BytecodeWriter::Relocatable frame_size_;
   };
 
   /**
@@ -235,8 +235,9 @@ namespace verona::compiler
   class FunctionGenerator : public BaseFunctionGenerator
   {
   public:
-    FunctionGenerator(Generator& gen, std::string_view name, FunctionABI abi)
-    : BaseFunctionGenerator(gen, name, abi)
+    FunctionGenerator(
+      BytecodeWriter& writer, std::string_view name, FunctionABI abi)
+    : BaseFunctionGenerator(writer, name, abi)
     {}
 
     /**

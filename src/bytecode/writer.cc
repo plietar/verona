@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "bytecode/generator.h"
+#include "bytecode/writer.h"
 
 #include "ds/helpers.h"
 
@@ -8,73 +8,73 @@
 
 namespace verona::bytecode
 {
-  void Generator::u8(uint8_t value)
+  void BytecodeWriter::u8(uint8_t value)
   {
     write<uint8_t>(value);
   }
 
-  void Generator::u16(uint16_t value)
+  void BytecodeWriter::u16(uint16_t value)
   {
     write<uint16_t>(value);
   }
 
-  void Generator::u32(uint32_t value)
+  void BytecodeWriter::u32(uint32_t value)
   {
     write<uint32_t>(value);
   }
 
-  void Generator::u64(uint64_t value)
+  void BytecodeWriter::u64(uint64_t value)
   {
     write<uint64_t>(value);
   }
 
-  void Generator::str(std::string_view s)
+  void BytecodeWriter::str(std::string_view s)
   {
     u16(truncate<uint16_t>(s.size()));
     code_.insert(code_.end(), s.data(), s.data() + s.size());
   }
 
-  void Generator::opcode(bytecode::Opcode opcode)
+  void BytecodeWriter::opcode(bytecode::Opcode opcode)
   {
     u8((uint8_t)opcode);
   }
 
-  void Generator::selector(bytecode::SelectorIdx selector)
+  void BytecodeWriter::selector(bytecode::SelectorIdx selector)
   {
     u32(selector.value);
   }
 
-  void Generator::u8(Relocatable relocatable, size_t relative_to)
+  void BytecodeWriter::u8(Relocatable relocatable, size_t relative_to)
   {
     add_relocation(current_offset(), 1, relocatable, relative_to, false);
     u8(0);
   }
 
-  void Generator::u16(Relocatable relocatable, size_t relative_to)
+  void BytecodeWriter::u16(Relocatable relocatable, size_t relative_to)
   {
     add_relocation(current_offset(), 2, relocatable, relative_to, false);
     u16(0);
   }
 
-  void Generator::s16(Relocatable relocatable, size_t relative_to)
+  void BytecodeWriter::s16(Relocatable relocatable, size_t relative_to)
   {
     add_relocation(current_offset(), 2, relocatable, relative_to, true);
     u16(0);
   }
 
-  void Generator::u32(Relocatable relocatable, size_t relative_to)
+  void BytecodeWriter::u32(Relocatable relocatable, size_t relative_to)
   {
     add_relocation(current_offset(), 4, relocatable, relative_to, false);
     u32(0);
   }
 
-  void Generator::u64(Relocatable relocatable, size_t relative_to)
+  void BytecodeWriter::u64(Relocatable relocatable, size_t relative_to)
   {
     add_relocation(current_offset(), 8, relocatable, relative_to, false);
     u64(0);
   }
 
-  void Generator::finish()
+  void BytecodeWriter::finish()
   {
     for (const auto& rel : relocations_)
     {
@@ -116,7 +116,7 @@ namespace verona::bytecode
     }
   }
 
-  void Generator::add_relocation(
+  void BytecodeWriter::add_relocation(
     size_t offset,
     uint8_t width,
     Relocatable relocatable,
@@ -129,25 +129,25 @@ namespace verona::bytecode
       {offset, width, relocatable.index, relative_to, is_signed});
   }
 
-  Generator::Relocatable Generator::create_relocatable()
+  BytecodeWriter::Relocatable BytecodeWriter::create_relocatable()
   {
     size_t index = relocatables_.size();
     relocatables_.push_back(std::nullopt);
     return Relocatable(index);
   }
 
-  Label Generator::create_label()
+  Label BytecodeWriter::create_label()
   {
     return Label(create_relocatable());
   }
 
-  Descriptor Generator::create_descriptor()
+  Descriptor BytecodeWriter::create_descriptor()
   {
     return Descriptor(create_relocatable());
   }
 
-  void
-  Generator::define_relocatable(Relocatable relocatable, RelocationValue value)
+  void BytecodeWriter::define_relocatable(
+    Relocatable relocatable, RelocationValue value)
   {
     assert(relocatable.is_valid());
     std::optional<RelocationValue>& slot = relocatables_.at(relocatable.index);
@@ -157,7 +157,7 @@ namespace verona::bytecode
     slot = value;
   }
 
-  void Generator::define_label(Label label)
+  void BytecodeWriter::define_label(Label label)
   {
     define_relocatable(label, current_offset());
   }

@@ -45,7 +45,7 @@ namespace verona::compiler
     const Reachability& reachability,
     ProgramTable& program_table,
     const SelectorTable& selectors,
-    Generator& gen)
+    BytecodeWriter& writer)
   {
     for (const auto& [entity, entity_info] : reachability.entities)
     {
@@ -53,14 +53,14 @@ namespace verona::compiler
       {
         if (method.definition->kind() == Method::Builtin)
         {
-          generate_builtin(gen, program_table, method);
+          generate_builtin(writer, program_table, method);
         }
         else
         {
           const FnAnalysis& fn_analysis =
             analysis.functions.at(method.definition);
           generate_ir_function(
-            context, program_table, selectors, gen, method, fn_analysis);
+            context, program_table, selectors, writer, method, fn_analysis);
         }
       }
     }
