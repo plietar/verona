@@ -4,11 +4,13 @@
 
 #include "compiler/analysis.h"
 #include "compiler/codegen/descriptor.h"
-#include "compiler/codegen/generator.h"
+#include "bytecode/generator.h"
 
 namespace verona::compiler
 {
   using bytecode::Register;
+  using bytecode::CalleeRegister;
+  using bytecode::Generator;
 
   void emit_functions(
     Context& context,

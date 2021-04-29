@@ -1,7 +1,6 @@
 find_package(Threads REQUIRED)
 
 add_library(interpreter
-  bytecode.cc
   interpreter.cc
   object.cc
   value.cc
@@ -12,9 +11,9 @@ target_link_libraries(interpreter CLI11::CLI11)
 target_link_libraries(interpreter fmt)
 target_link_libraries(interpreter Threads::Threads)
 target_link_libraries(interpreter verona_rt)
+target_link_libraries(interpreter bytecode)
 
 add_library(interpreter-sys
-  bytecode.cc
   interpreter.cc
   object.cc
   value.cc
@@ -25,6 +24,7 @@ target_link_libraries(interpreter-sys CLI11::CLI11)
 target_link_libraries(interpreter-sys fmt)
 target_link_libraries(interpreter-sys Threads::Threads)
 target_link_libraries(interpreter-sys verona_rt)
+target_link_libraries(interpreter-sys bytecode)
 target_compile_definitions(interpreter-sys PRIVATE USE_SYSTEMATIC_TESTING)
 
 

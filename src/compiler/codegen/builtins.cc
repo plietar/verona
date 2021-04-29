@@ -1,12 +1,13 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 #include "compiler/codegen/builtins.h"
-
-#include "compiler/codegen/generator.h"
+#include "compiler/codegen/function.h"
+#include "bytecode/bytecode.h"
 
 namespace verona::compiler
 {
   using bytecode::Opcode;
+  using bytecode::Register;
 
   struct BuiltinGenerator : public BaseFunctionGenerator
   {

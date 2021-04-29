@@ -1,12 +1,12 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "compiler/codegen/generator.h"
+#include "bytecode/generator.h"
 
 #include "ds/helpers.h"
 
 #include <cassert>
 
-namespace verona::compiler
+namespace verona::bytecode
 {
   void Generator::u8(uint8_t value)
   {
@@ -123,6 +123,7 @@ namespace verona::compiler
     size_t relative_to,
     bool is_signed)
   {
+    assert(relocatable.is_valid());
     assert(width <= 8);
     relocations_.push_back(
       {offset, width, relocatable.index, relative_to, is_signed});
@@ -148,6 +149,7 @@ namespace verona::compiler
   void
   Generator::define_relocatable(Relocatable relocatable, RelocationValue value)
   {
+    assert(relocatable.is_valid());
     std::optional<RelocationValue>& slot = relocatables_.at(relocatable.index);
     if (slot.has_value())
       throw std::logic_error("Relocatable already has a value");

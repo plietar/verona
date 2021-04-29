@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "compiler/codegen/generator.h"
+#include "bytecode/generator.h"
 #include "compiler/reachability/item.h"
 #include "compiler/reachability/reachability.h"
 #include "compiler/reachability/selector.h"
 
 namespace verona::compiler
 {
+  using bytecode::Label;
+  using bytecode::Generator;
+  using bytecode::Descriptor;
+
   /**
    * The program table maintains a mapping from items being codegen'ed to their
    * location in the bytecode. Since that location may not be known ahead of

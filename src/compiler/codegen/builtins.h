@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "compiler/codegen/function.h"
+#include "bytecode/generator.h"
+#include "compiler/codegen/descriptor.h"
 
 namespace verona::compiler
 {

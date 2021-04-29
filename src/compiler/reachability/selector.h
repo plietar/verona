@@ -3,7 +3,7 @@
 #pragma once
 
 #include "compiler/type.h"
-#include "interpreter/bytecode.h"
+#include "bytecode/bytecode.h"
 
 #include <map>
 

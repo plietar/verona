@@ -5,9 +5,9 @@
 #include "compiler/ast.h"
 #include "compiler/codegen/descriptor.h"
 #include "compiler/codegen/function.h"
-#include "compiler/codegen/generator.h"
+#include "bytecode/generator.h"
 #include "compiler/reachability/reachability.h"
-#include "interpreter/bytecode.h"
+#include "bytecode/bytecode.h"
 
 namespace verona::compiler
 {

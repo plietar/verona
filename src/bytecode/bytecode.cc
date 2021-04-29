@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "interpreter/bytecode.h"
+#include "bytecode/bytecode.h"
 
 #include "ds/helpers.h"
 

@@ -3,14 +3,14 @@
 #pragma once
 
 #include "ds/helpers.h"
-#include "interpreter/bytecode.h"
+#include "bytecode/bytecode.h"
 
 #include <functional>
 #include <iostream>
 #include <optional>
 #include <vector>
 
-namespace verona::compiler
+namespace verona::bytecode
 {
   struct Label;
   struct Descriptor;
@@ -63,8 +63,8 @@ namespace verona::compiler
      */
     void str(std::string_view s);
 
-    void opcode(bytecode::Opcode opcode);
-    void selector(bytecode::SelectorIdx index);
+    void opcode(Opcode opcode);
+    void selector(SelectorIdx index);
 
     /**
      * Write relocatable integer values in little endian format, with an
@@ -119,20 +119,20 @@ namespace verona::compiler
      * opcode's operands, as defined in the opcode spec in
      * `interpreter/bytecode.h`.
      */
-    template<bytecode::Opcode Op, typename... Args>
+    template<Opcode Op, typename... Args>
     void emit(Args&&... args)
     {
-      using Operands = typename bytecode::OpcodeSpec<Op>::Operands;
+      using Operands = typename OpcodeSpec<Op>::Operands;
       emit_impl<Op>(Operands{}, std::forward<Args>(args)...);
     }
 
   private:
     template<
-      bytecode::Opcode Op,
+      Opcode Op,
       typename... Operands,
       typename... Args,
       typename = std::enable_if_t<sizeof...(Operands) == sizeof...(Args)>>
-    void emit_impl(bytecode::OpcodeOperands<Operands...>, Args&&... args)
+    void emit_impl(OpcodeOperands<Operands...>, Args&&... args)
     {
       size_t opcode_start = current_offset();
       opcode(Op);
@@ -192,8 +192,14 @@ namespace verona::compiler
    */
   struct Generator::Relocatable
   {
+    explicit Relocatable() : index(SIZE_MAX) {}
+    bool is_valid() const
+    {
+      return index != SIZE_MAX;
+    }
+
   private:
-    Relocatable(size_t index) : index(index) {}
+    explicit Relocatable(size_t index) : index(index) {}
     size_t index;
     friend Generator;
   };
@@ -203,6 +209,7 @@ namespace verona::compiler
    */
   struct Label
   {
+    explicit Label() {}
     explicit Label(Generator::Relocatable relocatable)
     : relocatable(relocatable)
     {}
@@ -219,6 +226,7 @@ namespace verona::compiler
    */
   struct Descriptor
   {
+    explicit Descriptor() {}
     explicit Descriptor(Generator::Relocatable relocatable)
     : relocatable(relocatable)
     {}
@@ -235,7 +243,7 @@ namespace verona::compiler
     CalleeRegister(
       size_t callspace,
       Generator::Relocatable frame_size,
-      bytecode::Register reg)
+      Register reg)
     : callspace(callspace), frame_size(frame_size), reg(reg)
     {
       if (reg.value >= callspace)
@@ -245,7 +253,7 @@ namespace verona::compiler
 
     size_t callspace;
     Generator::Relocatable frame_size;
-    bytecode::Register reg;
+    Register reg;
   };
 
   template<typename T>
@@ -271,7 +279,7 @@ namespace verona::compiler
   };
 
   template<typename T>
-  struct Generator::emit_helper<T, std::enable_if_t<bytecode::is_wrapper_v<T>>>
+  struct Generator::emit_helper<T, std::enable_if_t<is_wrapper_v<T>>>
   {
     static void write(Generator* gen, size_t opcode_start, T value)
     {
@@ -280,10 +288,10 @@ namespace verona::compiler
   };
 
   template<>
-  struct Generator::emit_helper<bytecode::Register>
+  struct Generator::emit_helper<Register>
   {
     static void
-    write(Generator* gen, size_t opcode_start, bytecode::Register value)
+    write(Generator* gen, size_t opcode_start, Register value)
     {
       gen->u8(value.value);
     }
@@ -296,8 +304,14 @@ namespace verona::compiler
   };
 
   template<>
-  struct Generator::emit_helper<bytecode::DescriptorIdx>
+  struct Generator::emit_helper<DescriptorIdx>
   {
+    static void
+    write(Generator* gen, size_t opcode_start, DescriptorIdx value)
+    {
+      gen->u32(value.value);
+    }
+
     static void write(Generator* gen, size_t opcode_start, Descriptor value)
     {
       gen->u32(value);
@@ -315,14 +329,14 @@ namespace verona::compiler
   };
 
   template<>
-  struct Generator::emit_helper<bytecode::RegisterSpan>
+  struct Generator::emit_helper<RegisterSpan>
   {
     static void
-    write(Generator* gen, size_t opcode_start, bytecode::RegisterSpan value)
+    write(Generator* gen, size_t opcode_start, RegisterSpan value)
     {
       size_t size = value.size();
       gen->u8(truncate<uint8_t>(size));
-      for (bytecode::Register reg : value)
+      for (Register reg : value)
       {
         gen->u8(reg.value);
       }
@@ -330,7 +344,7 @@ namespace verona::compiler
   };
 
   template<>
-  struct Generator::emit_helper<bytecode::RelativeOffset>
+  struct Generator::emit_helper<RelativeOffset>
   {
     static void write(Generator* gen, size_t opcode_start, Label value)
     {
@@ -339,7 +353,7 @@ namespace verona::compiler
   };
 
   template<>
-  struct Generator::emit_helper<bytecode::AbsoluteOffset>
+  struct Generator::emit_helper<AbsoluteOffset>
   {
     static void write(Generator* gen, size_t opcode_start, Label value)
     {

@@ -12,6 +12,8 @@
 namespace verona::compiler
 {
   using bytecode::Opcode;
+  using bytecode::CalleeRegister;
+  using bytecode::Descriptor;
   using bytecode::SelectorIdx;
 
   /**

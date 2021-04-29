@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "interpreter/bytecode.h"
+#include "bytecode/bytecode.h"
 
 #include <fmt/format.h>
 #include <verona.h>

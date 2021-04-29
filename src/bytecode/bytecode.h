@@ -197,6 +197,11 @@ namespace verona::bytecode
       uint32_t value = std::numeric_limits<uint32_t>::max();
       return DescriptorIdx(value);
     }
+
+    bool is_valid() const
+    {
+      return value != std::numeric_limits<uint32_t>::max();
+    }
   };
 
   /**
