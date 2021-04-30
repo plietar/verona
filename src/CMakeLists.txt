@@ -58,6 +58,7 @@ add_subdirectory(compiler)
 add_subdirectory(interpreter)
 add_subdirectory(mlir)
 add_subdirectory(interop)
+add_subdirectory(mlir2)
 
 install(CODE [[
   file(REMOVE_RECURSE ${CMAKE_INSTALL_PREFIX})
