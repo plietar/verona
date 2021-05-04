@@ -322,6 +322,8 @@ namespace verona::vam
     MethodOp lower(const CodegenItem<Method>& method)
     {
       bytecode::SelectorIdx selector = selectors.get(method.selector());
+
+      /*
       MethodOp method_op =
         MethodOp::create(getUnknownLoc(), selector, method.instantiated_path());
 
@@ -340,6 +342,8 @@ namespace verona::vam
       }
 
       return method_op;
+      */
+      return nullptr;
     }
 
     DescriptorOp lower(CodegenItem<Entity> entity, EntityReachability info)

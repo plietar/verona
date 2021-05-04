@@ -32,15 +32,13 @@ def VAM_FieldOp : VAM_Op<"field", [
 def VAM_MethodOp : VAM_Op<"method", [
   IsolatedFromAbove, HasParent<"DescriptorOp">
 ]> {
-  let arguments = (ins SelectorAttr:$selector, StrAttr:$name);
-  let regions = (region AnyRegion:$body);
-
+  let arguments = (ins SelectorAttr:$selector, FlatSymbolRefAttr:$function);
   let extraClassDeclaration = [{
-    static MethodOp create(::mlir::Location loc, bytecode::SelectorIdx selector, ::llvm::StringRef name);
+    static MethodOp create(::mlir::Location loc, bytecode::SelectorIdx selector, mlir::FlatSymbolRefAttr function);
   }];
 
   let assemblyFormat = [{
-    $selector `name` `=` $name custom<VeronaBody>($body, attr-dict)
+    $selector `->` $function attr-dict
   }];
 }
 

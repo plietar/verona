@@ -16,7 +16,7 @@ namespace verona::vam
   struct ProgramTable
   {
     llvm::DenseMap<llvm::StringRef, bytecode::DescriptorIdx> descriptors;
-    std::vector<std::pair<MethodOp, Label>> methods;
+    llvm::DenseMap<mlir::FuncOp, Label> methods;
   };
 
   static bytecode::DescriptorIdx find_descriptor(
@@ -55,47 +55,21 @@ namespace verona::vam
       writer.u32(methods_rel);
       writer.u32(fields_rel);
       writer.u32(0); // Number of subtypes
-
-      std::optional<std::pair<bytecode::SelectorIdx, Label>> finaliser;
-      if (descriptor.finaliser().hasValue())
-      {
-        Label label = writer.create_label();
-        writer.u32(label);
-        finaliser = {*descriptor.finaliser(), label};
-      }
-      else
-      {
-        writer.u32(0);
-      }
+      writer.u32(0); // Finaliser
 
       uint32_t methods = 0;
       uint32_t fields = 0;
       for (MethodOp method : descriptor.getOps<MethodOp>())
       {
-        Label entry;
-
-        if (finaliser && method.selector() == finaliser->first)
-        {
-          entry = finaliser->second;
-          finaliser.reset();
-        }
-        else
-        {
-          entry = writer.create_label();
+        auto fn = mlir::SymbolTable::lookupNearestSymbolFrom<mlir::FuncOp>(method, method.function());
+        auto [it, inserted] = table.methods.try_emplace(fn, Label());
+        if (inserted) {
+          it->second = writer.create_label();
         }
 
         writer.selector(method.selector());
-        writer.u32(entry); // offset
-        table.methods.push_back({method, entry});
+        writer.u32(it->second);
         methods += 1;
-      }
-
-      if (finaliser.has_value())
-      {
-        InternalError::print(
-          "Did not find a finaliser for descriptor '{}' with selector '{}'\n",
-          descriptor.getName(),
-          finaliser->first);
       }
 
       for (FieldOp field : descriptor.getOps<FieldOp>())
@@ -348,14 +322,14 @@ namespace verona::vam
     }
   };
 
-  static void emit_method(
-    MethodOp method,
+  static void emit_function(
+    mlir::FuncOp func,
     Label label,
     bytecode::BytecodeWriter& writer,
     ProgramTable& table)
   {
     WorkQueue queue;
-    queue.emplace_back(label, &method.body(), method.name());
+    queue.emplace_back(label, &func.body(), func.getName());
 
     while (!queue.empty())
     {
@@ -381,7 +355,7 @@ namespace verona::vam
     emit_header(module, gen, table);
     for (const auto& [op, label] : table.methods)
     {
-      emit_method(op, label, gen, table);
+      emit_function(op, label, gen, table);
     }
     gen.finish();
 

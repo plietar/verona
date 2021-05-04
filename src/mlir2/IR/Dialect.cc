@@ -2,6 +2,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir2/IR/OpSyntax.h"
 
 #include "llvm/ADT/TypeSwitch.h"
@@ -99,10 +100,10 @@ namespace verona::vam
   MethodOp MethodOp::create(
     ::mlir::Location loc,
     bytecode::SelectorIdx selector,
-    ::llvm::StringRef name)
+    mlir::FlatSymbolRefAttr function)
   {
     mlir::OpBuilder builder(loc->getContext());
-    return builder.create<MethodOp>(loc, selector, name);
+    return builder.create<MethodOp>(loc, selector, function.getValue());
   }
 
   static LogicalResult verifyDescriptorSymbolUse(

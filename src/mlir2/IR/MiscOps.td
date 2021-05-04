@@ -33,7 +33,7 @@ def VAM_MatchDescriptorOp : VAM_Op<"match_descriptor"> {
 
 // def VAM_MatchCapabilityOp : VAM_BinOp<"match_capability"> { }
 
-def VAM_ReturnOp : VAM_Op<"return", [Terminator, ParentOneOf<["MethodOp", "WhenOp"]>]> {
+def VAM_ReturnOp : VAM_Op<"return", [Terminator, ParentOneOf<["::mlir::FuncOp", "WhenOp"]>]> {
   let arguments = (ins VAM_Value:$operand);
   let assemblyFormat = [{ $operand attr-dict }];
 }
